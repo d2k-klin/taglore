@@ -1,0 +1,12 @@
+<!doctype html>
+<!-- A searchable changelog page for any frontend. history.json is written by Taglore next to latest.json. -->
+<html lang="en">
+  <body>
+    <main style="max-width: 760px; margin: 2rem auto">
+      <h1>Changelog</h1>
+      <script type="module" src="https://cdn.jsdelivr.net/npm/@taglore/whats-new@1/dist/element.js"></script>
+      <taglore-changelog src="/release-notes/history.json" label-search="Search releases"></taglore-changelog>
+      <!-- announced-only hides patch releases; no-search hides the search box -->
+    </main>
+  </body>
+</html>

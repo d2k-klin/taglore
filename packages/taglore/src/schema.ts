@@ -10,6 +10,8 @@ export type ReleaseType = z.infer<typeof ReleaseTypeSchema>;
 export const NoteItemSchema = z.object({
   title: z.string().min(1).max(120),
   description: z.string().max(600).default(""),
+  /** Short SHAs of the commits that support this statement. Verified by Taglore against the real commit range. */
+  commits: z.array(z.string()).max(30).default([]),
 });
 export type NoteItem = z.infer<typeof NoteItemSchema>;
 
@@ -47,3 +49,10 @@ export const ReleaseNotesSchema = AiNotesSchema.extend({
   security: SecuritySummarySchema.optional(),
 });
 export type ReleaseNotes = z.infer<typeof ReleaseNotesSchema>;
+
+/** history.json: every release, newest first, for a changelog page. */
+export const HistorySchema = z.object({
+  schemaVersion: z.literal(SCHEMA_VERSION),
+  releases: z.array(ReleaseNotesSchema),
+});
+export type History = z.infer<typeof HistorySchema>;

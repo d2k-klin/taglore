@@ -1,8 +1,10 @@
 {
   "name": "taglore",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "AI-written release notes from git tags. Publishes to GitHub Releases, an output folder for Docker builds, workflow artifacts and S3.",
   "license": "MIT",
+  "homepage": "https://github.com/d2k-klin/taglore#readme",
+  "publishConfig": { "access": "public" },
   "type": "module",
   "repository": {
     "type": "git",

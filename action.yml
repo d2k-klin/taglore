@@ -70,7 +70,7 @@ inputs:
     description: Extra glob patterns kept out of the AI context, comma or newline separated. Lockfiles, build output, images and .env files are always excluded.
     required: false
   max-diff-kb:
-    description: Maximum diff size sent to the AI. Default 100 (copilot) or 20 (github-models).
+    description: Maximum size of the change context sent to the AI (commit list, file list and diff together). Default 100 (copilot) or 20 (github-models).
     required: false
 
   # Security (optional): SBOM + vulnerability diff, from scanners, never AI
@@ -103,6 +103,22 @@ inputs:
     description: Grype version to install when grype is not on PATH.
     required: false
     default: latest
+
+  # Review and history
+  evidence:
+    description: "warn | strict. Every statement must cite commits from this release. warn keeps statements without a real commit and reports them; strict removes them."
+    required: false
+    default: warn
+  preview-file:
+    description: Write a self-contained review page (what users will see, and the commits behind every statement) to this path, also on a dry run. It lists commit subjects, so keep it out of output-dir.
+    required: false
+  history-limit:
+    description: Number of releases kept in history.json (newest first), for a changelog page. 0 turns it off.
+    required: false
+    default: "20"
+  history-file:
+    description: Local history.json to continue from. Default is to read earlier GitHub Releases.
+    required: false
 
   # Outputs
   publish-github-release:
@@ -174,6 +190,10 @@ outputs:
     description: Path of RELEASE_NOTES.md when output-dir is set.
   artifact-name:
     description: Name of the uploaded artifact.
+  history-json-path:
+    description: Path of history.json when output-dir is set.
+  unverified-statements:
+    description: Number of statements no commit in the release supports (removed when evidence is strict).
   security-open:
     description: Number of known vulnerabilities in this version (security-scan only).
   security-introduced:

@@ -1,0 +1,54 @@
+# Review before publishing: a preview job writes the notes and a review page,
+# a person approves in GitHub, and the publish job releases exactly what was reviewed.
+#
+# Setup: Settings > Environments > New environment "release" > Required reviewers.
+name: Release notes (with review)
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  preview:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - id: notes
+        uses: d2k-klin/taglore@v1
+        with:
+          copilot-token: ${{ secrets.COPILOT_TOKEN }}
+          evidence: strict                   # statements without a real commit are removed
+          publish-github-release: false
+          output-dir: release-notes
+          preview-file: review/preview.html  # what users will see + the commits behind it
+
+      # The run summary shows the evidence table; the artifact holds the full preview page.
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-review
+          path: |
+            release-notes
+            review
+
+  publish:
+    needs: preview
+    environment: release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - uses: actions/download-artifact@v5
+        with:
+          name: release-review
+
+      - uses: d2k-klin/taglore@v1
+        with:
+          notes-from: release-notes/release.json   # no second AI call, identical text

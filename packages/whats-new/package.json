@@ -1,8 +1,10 @@
 {
   "name": "@taglore/whats-new",
-  "version": "1.1.0",
-  "description": "What's New dialog for Taglore release notes: a React component and a framework-free <taglore-whats-new> web component for any frontend.",
+  "version": "1.2.0",
+  "description": "What's New dialog and changelog page for Taglore release notes: React components and framework-free web components for any frontend.",
   "license": "MIT",
+  "homepage": "https://github.com/d2k-klin/taglore/tree/main/packages/whats-new#readme",
+  "publishConfig": { "access": "public" },
   "type": "module",
   "repository": {
     "type": "git",

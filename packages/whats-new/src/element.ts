@@ -1,3 +1,4 @@
+import "./changelog-element.js";
 import { DEFAULT_STORAGE_KEY, DEFAULT_URL, loadNotes, shouldShow, writeSeen } from "./core.js";
 import { CSS } from "./styles.js";
 import type { NoteItem, ReleaseNotes } from "./types.js";
@@ -140,3 +141,5 @@ function injectStyles() {
 if (typeof customElements !== "undefined" && !customElements.get("taglore-whats-new")) {
   customElements.define("taglore-whats-new", TagloreWhatsNewElement);
 }
+
+export { TagloreChangelogElement } from "./changelog-element.js";

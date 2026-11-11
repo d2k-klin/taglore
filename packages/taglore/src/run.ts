@@ -1,5 +1,8 @@
 import { collectChanges, DEFAULT_EXCLUDES, type ChangeSet } from "./collect.js";
+import { type EvidenceMode, type EvidenceReport, renderEvidenceMarkdown, verifyEvidence } from "./evidence.js";
 import { fallbackNotes } from "./fallback.js";
+import { buildHistory, HISTORY_ASSET_NAME } from "./history.js";
+import { renderPreview } from "./preview.js";
 import { git, isShallow, listTags, refDate, resolveRef } from "./git.js";
 import { renderMarkdown } from "./markdown.js";
 import { TAGLORE_VERSION } from "./meta.js";
@@ -15,7 +18,7 @@ import { assertFailOn, describeCounts, gateViolations } from "./security/diff.js
 import { renderSecuritySection } from "./security/markdown.js";
 import { runSecurityScan } from "./security/scan.js";
 import type { FailOn, SecurityReport } from "./security/types.js";
-import { AiNotesSchema, type AiNotes, type ReleaseNotes, ReleaseNotesSchema, type ReleaseType, SCHEMA_VERSION } from "./schema.js";
+import { AiNotesSchema, type AiNotes, type History, type ReleaseNotes, ReleaseNotesSchema, type ReleaseType, SCHEMA_VERSION } from "./schema.js";
 import { announcementBase, type CompareMode, compareSemver, parseSemver, releaseTypeOf, resolveBase, shouldAnnounce } from "./version.js";
 
 export interface Logger {
@@ -84,6 +87,18 @@ export interface TagloreOptions {
    */
   notesFrom?: string;
   grypeCommand?: string;
+
+  /**
+   * What to do with statements no commit in the release supports.
+   * warn (default): keep them and report them. strict: remove them.
+   */
+  evidence?: EvidenceMode;
+  /** Write a self-contained review page (what users will see + the commits behind every statement). Also written on a dry run. */
+  previewFile?: string;
+  /** Releases kept in history.json (newest first). 0 turns history.json off. Default 20. */
+  historyLimit?: number;
+  /** Local history.json to continue from instead of reading earlier GitHub Releases. */
+  historyFile?: string;
 }
 
 export interface TagloreResult {
@@ -103,6 +118,11 @@ export interface TagloreResult {
   compareUrl: string | null;
   /** Full security report when security scanning was enabled. */
   security: SecurityReport | null;
+  /** Which commits stand behind each statement, and which statements have none. */
+  evidence: EvidenceReport;
+  /** Review table for the evidence, as Markdown. */
+  evidenceMarkdown: string;
+  history: History | null;
 }
 
 const consoleLog: Logger = { info: (m) => console.log(m), warn: (m) => console.warn(`warning: ${m}`) };
@@ -138,7 +158,7 @@ function makeProvider(o: TagloreOptions): AiProvider | null {
   }
 }
 
-async function aiNotes(provider: AiProvider, changes: ChangeSet, o: TagloreOptions, version: string, prev: string | null, log: Logger) {
+async function aiNotes(provider: AiProvider, changes: ChangeSet, o: TagloreOptions, version: string, prev: string | null, log: Logger, maxContextKb: number) {
   const prompt = buildPrompt(changes, {
     productName: o.productName ?? (o.repository?.split("/")[1] ?? "this application"),
     version,
@@ -147,6 +167,7 @@ async function aiNotes(provider: AiProvider, changes: ChangeSet, o: TagloreOptio
     tone: o.tone ?? "friendly and concise",
     audience: o.audience ?? "end users of the application",
     instructions: o.instructions,
+    maxContextBytes: maxContextKb * 1024,
   });
   log.info(`Asking ${provider.name} (${Math.round(Buffer.byteLength(prompt) / 1024)} KB prompt)...`);
   const res = await provider.generate(prompt);
@@ -243,7 +264,7 @@ export async function runTaglore(opts: TagloreOptions = {}): Promise<TagloreResu
     model = reused.generator.model;
   } else if (provider && aiFor.includes(releaseType) && changes.commits.length > 0) {
     try {
-      const r = await aiNotes(provider, changes, o, to, from, log);
+      const r = await aiNotes(provider, changes, o, to, from, log, maxDiffKb);
       body = r.notes;
       providerName = provider.name;
       model = r.model;
@@ -257,8 +278,22 @@ export async function runTaglore(opts: TagloreOptions = {}): Promise<TagloreResu
     body = fallbackNotes(changes.commits, to, { firstRelease: from === null });
   }
 
+  // 3b. Evidence: every statement must point at real commits in this range.
+  const evidenceMode = o.evidence ?? "warn";
+  if (evidenceMode !== "warn" && evidenceMode !== "strict") throw new Error(`Invalid evidence "${evidenceMode}". Use warn or strict.`);
+  const checked = verifyEvidence(sanitizeNotes(body), changes.commits, evidenceMode);
+  const evidence = checked.report;
+  if (evidence.unverified.length) {
+    const titles = evidence.unverified.map((u) => u.title).join("; ");
+    log.warn(
+      evidence.removed
+        ? `Removed ${evidence.unverified.length} statement(s) with no supporting commit: ${titles}`
+        : `${evidence.unverified.length} statement(s) have no supporting commit (evidence: strict removes them): ${titles}`,
+    );
+  }
+
   const notes = ReleaseNotesSchema.parse({
-    ...sanitizeNotes(body),
+    ...checked.notes,
     schemaVersion: SCHEMA_VERSION,
     version: to,
     previousVersion: from,
@@ -305,6 +340,24 @@ export async function runTaglore(opts: TagloreOptions = {}): Promise<TagloreResu
     files.push({ name: "latest.json", content: JSON.stringify(latest, null, 2) + "\n", contentType: "application/json", cacheControl: "public, max-age=60" });
   }
 
+  // 5b. History for a changelog page
+  const historyLimit = o.historyLimit ?? 20;
+  let history: History | null = null;
+  if (historyLimit > 0 && releaseType !== "prerelease") {
+    history = await buildHistory({ notes, current, tags, prefix, limit: historyLimit, historyFile: o.historyFile, cwd, releases, log });
+    files.push({ name: "history.json", content: JSON.stringify(history, null, 2) + "\n", contentType: "application/json", cacheControl: "public, max-age=60" });
+  }
+
+  // 5c. Review page (not part of the published files: it lists commit subjects)
+  if (o.previewFile) {
+    const { mkdir, writeFile } = await import("node:fs/promises");
+    const { dirname, resolve } = await import("node:path");
+    const target = resolve(cwd, o.previewFile);
+    await mkdir(dirname(target), { recursive: true });
+    await writeFile(target, renderPreview(notes, evidence, { repositoryUrl: repository ? `${serverUrl}/${repository}` : null }), "utf8");
+    log.info(`Preview written to ${o.previewFile}`);
+  }
+
   // 6. Publish
   let writtenFiles: string[] = [];
   let s3Keys: string[] = [];
@@ -331,6 +384,7 @@ export async function runTaglore(opts: TagloreOptions = {}): Promise<TagloreResu
       for (const f of files.filter((f) => ["security.json", "sbom.cdx.json", "sbom-image.cdx.json"].includes(f.name))) {
         await releases.uploadAsset(rel, f.name, f.content, f.contentType);
       }
+      if (history) await releases.uploadAsset(rel, HISTORY_ASSET_NAME, JSON.stringify(history) + "\n");
       releaseUrl = rel.html_url;
       log.info(`GitHub Release: ${releaseUrl}`);
     }
@@ -355,6 +409,9 @@ export async function runTaglore(opts: TagloreOptions = {}): Promise<TagloreResu
     releaseUrl,
     compareUrl,
     security,
+    evidence,
+    evidenceMarkdown: renderEvidenceMarkdown(evidence),
+    history,
   };
 }
 

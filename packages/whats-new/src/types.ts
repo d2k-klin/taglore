@@ -2,6 +2,14 @@
 export interface NoteItem {
   title: string;
   description: string;
+  /** Short SHAs of the commits behind this statement (Taglore 1.2+). */
+  commits?: string[];
+}
+
+/** history.json: every release, newest first. */
+export interface History {
+  schemaVersion: 1;
+  releases: ReleaseNotes[];
 }
 
 export interface ReleaseNotes {

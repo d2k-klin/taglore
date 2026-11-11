@@ -16,7 +16,7 @@ describe("sanitize", () => {
     const n = sanitizeNotes(
       AiNotesSchema.parse({ title: "T", summary: "S", highlights: [{ title: "<b></b>", description: "" }, { title: "Real" }] }),
     );
-    expect(n.highlights).toEqual([{ title: "Real", description: "" }]);
+    expect(n.highlights).toEqual([{ title: "Real", description: "", commits: [] }]);
   });
 });
 

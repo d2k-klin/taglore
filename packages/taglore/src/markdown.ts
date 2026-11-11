@@ -3,7 +3,10 @@ import type { NoteItem, ReleaseNotes } from "./schema.js";
 
 function section(title: string, items: NoteItem[]): string {
   if (!items.length) return "";
-  const lines = items.map((i) => (i.description ? `- **${i.title}**: ${i.description}` : `- ${i.title}`));
+  const lines = items.map((i) => {
+    const refs = i.commits.length ? ` (${i.commits.join(", ")})` : "";
+    return (i.description ? `- **${i.title}**: ${i.description}` : `- ${i.title}`) + refs;
+  });
   return `### ${title}\n\n${lines.join("\n")}\n\n`;
 }
 

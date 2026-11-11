@@ -56,6 +56,8 @@ Pick the extra inputs from what the user needs:
 | Different language or voice | `language`, `tone`, `audience`, `product-name`, `instructions` |
 | Image scan (OS packages) | Second step after `docker build`: `notes-from` + `security-image: <image>:{version}` |
 | Security notes + SBOM per release | `security-scan: true` (Syft + Grype, installed automatically); add `security-fail-on: high` to block releases that introduce high/critical findings |
+| Human review before publishing | Two jobs: `preview` (`evidence: strict`, `publish-github-release: false`, `output-dir`, `preview-file`) and `publish` in an Environment with required reviewers using `notes-from`; copy `examples/workflows/review.yml` |
+| Changelog page | Serve `history.json` (written by default) and add `<taglore-changelog src="/release-notes/history.json">` or React `<Changelog />` |
 | Keep paths away from the AI | `exclude: "infra/**, **/*.sql"` (lockfiles, build output, images, `.env*`, keys are always excluded) |
 
 Ready-made workflows to copy and adapt live in `examples/workflows/` of the Taglore repo: `basic.yml`, `docker.yml`, `artifact.yml`, `s3.yml`, `compare-explicit.yml`, `major-review.yml`.
@@ -127,6 +129,13 @@ Behaviour to explain to the user: each major/minor announcement shows once per b
 - `ai-for` (default `major,minor`): which release types get AI notes; others use commit messages.
 - `announce-on` (default `major,minor`): which release types write a new `latest.json`. Other releases copy the last announced `taglore.json` from GitHub Releases (or from `baseline-file`).
 
+## Evidence, preview and history
+
+- Every statement in the notes lists the commits behind it. Taglore keeps only hashes that are real commits in the compared range. `evidence: warn` (default) reports statements with none; `evidence: strict` removes them. The run summary shows the table; `unverified-statements` is an output.
+- `preview-file` writes a review page (the dialog users will see plus the evidence). It contains commit subjects: never put it in `output-dir` or the image.
+- `history.json` holds every release, newest first (`history-limit`, default 20, `0` = off), built from earlier GitHub Releases. Without a GitHub token, pass `history-file`.
+- Evidence proves a statement points at real changes, not that its wording is right. Recommend the review workflow for major releases.
+
 ## Security scanning (optional)
 
 With `security-scan: true`, Taglore scans the released tag and the base version in separate git worktrees with Syft and Grype, using one frozen vulnerability database for both. It adds a "🔒 Security" section (fixed, introduced, open findings; dependency and license changes), `security.json` and `sbom.cdx.json`. These facts never pass through the AI.
@@ -149,5 +158,6 @@ With `security-scan: true`, Taglore scans the released tag and the base version 
 | "Could not scan image" | The image for this tag isn't built/pushed yet, or the template doesn't match the tag format (`{version}` vs `{semver}`) |
 | "notes-from: … is for vX, but this release is vY" | The first step wrote notes for a different tag; both steps must use the same `to` |
 | Security gate failed | The error lists the findings; upgrade the dependency, or record an accepted risk in `.grype.yaml` |
-| GitHub Models 413 or token limit | Lower `max-diff-kb` (default 20 for github-models) |
+| GitHub Models 413 or token limit | Lower `max-diff-kb` (default 20 for github-models); it caps commits, file list and diff together |
+| Statements removed or flagged as unverified | The model cited no real commit for them; check the run summary, improve commit messages, or use `evidence: warn` |
 | Notes mention internal work | Add guidance in `instructions`, or `exclude` the paths |

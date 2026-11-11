@@ -36,6 +36,12 @@ Security (needs syft and grype on PATH)
   --security-image <ref>  Also scan an image, e.g. ghcr.io/acme/app:{version} (implies --security)
   --notes-from <file>     Reuse an earlier release.json instead of generating notes
 
+Review and history
+  --evidence <mode>       warn | strict: keep or remove statements no commit supports (default: warn)
+  --preview <file>        Write a review page: what users will see and the commits behind it
+  --history-limit <n>     Releases kept in history.json (default: 20, 0 = off)
+  --history-file <file>   Continue from a local history.json instead of GitHub Releases
+
 Output
   --out <dir>             Write latest.json, release.json, RELEASE_NOTES.md here
   --github / --no-github  Create or update the GitHub Release (default: --no-github in the CLI)
@@ -89,6 +95,10 @@ async function main() {
       "security-exclude": { type: "string", multiple: true },
       "security-image": { type: "string" },
       "notes-from": { type: "string" },
+      evidence: { type: "string" },
+      preview: { type: "string" },
+      "history-limit": { type: "string" },
+      "history-file": { type: "string" },
       help: { type: "boolean", short: "h" },
       version: { type: "boolean", short: "v" },
     },
@@ -127,6 +137,10 @@ async function main() {
     securityExcludes: values["security-exclude"],
     securityImage: values["security-image"],
     notesFrom: values["notes-from"],
+    evidence: values.evidence as "warn" | "strict" | undefined,
+    previewFile: values.preview,
+    historyLimit: values["history-limit"] ? Number(values["history-limit"]) : undefined,
+    historyFile: values["history-file"],
     log: quiet ? { info: () => {}, warn: (m) => console.error(`warning: ${m}`) } : undefined,
   });
 

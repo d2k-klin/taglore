@@ -76,6 +76,10 @@ async function main() {
     grypeCommand,
     securityImage,
     notesFrom: input("notes-from"),
+    evidence: input("evidence") as "warn" | "strict" | undefined,
+    previewFile: input("preview-file"),
+    historyLimit: input("history-limit") ? Number(input("history-limit")) : undefined,
+    historyFile: input("history-file"),
     cwd: input("working-directory") ?? process.cwd(),
     to: input("to"),
     from,
@@ -140,6 +144,8 @@ async function main() {
   core.setOutput("latest-json-path", byName("latest.json"));
   core.setOutput("release-json-path", byName("release.json"));
   core.setOutput("markdown-path", byName("RELEASE_NOTES.md"));
+  core.setOutput("history-json-path", byName("history.json"));
+  core.setOutput("unverified-statements", String(result.evidence.unverified.length));
   core.setOutput("security-json-path", byName("security.json"));
   core.setOutput("sbom-path", byName("sbom.cdx.json"));
   core.setOutput("image-sbom-path", byName("sbom-image.cdx.json"));
@@ -158,6 +164,7 @@ async function main() {
     .addRaw(`From <code>${result.previousVersion ?? "first commit"}</code>, ${result.releaseType} release, announce: <b>${result.announce}</b>, notes by <b>${result.provider}</b>.`, true)
     .addBreak()
     .addRaw(result.markdown, true)
+    .addRaw(`\n\n${result.evidenceMarkdown}`, true)
     .write();
 }
 

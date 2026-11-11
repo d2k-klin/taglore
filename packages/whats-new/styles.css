@@ -1,11 +1,13 @@
-/* Default look for the React <WhatsNew /> and <taglore-whats-new>. Override the custom properties or write your own. */
-.taglore-wn {
+/* Default look for the What's New dialog and the changelog (React and web components). Override the custom properties or write your own. */
+.taglore-wn, .taglore-cl {
   --taglore-wn-bg: #fff;
   --taglore-wn-fg: #111827;
   --taglore-wn-muted: #6b7280;
   --taglore-wn-accent: #4f46e5;
   --taglore-wn-warn: #b45309;
   --taglore-wn-radius: 14px;
+}
+.taglore-wn {
   width: min(560px, calc(100vw - 2rem));
   max-height: min(80vh, 720px);
   padding: 0;
@@ -19,7 +21,7 @@
 }
 .taglore-wn::backdrop { background: rgb(15 23 42 / 0.45); }
 @media (prefers-color-scheme: dark) {
-  .taglore-wn { --taglore-wn-bg: #111827; --taglore-wn-fg: #f9fafb; --taglore-wn-muted: #9ca3af; --taglore-wn-accent: #818cf8; --taglore-wn-warn: #fbbf24; }
+  .taglore-wn, .taglore-cl { --taglore-wn-bg: #111827; --taglore-wn-fg: #f9fafb; --taglore-wn-muted: #9ca3af; --taglore-wn-accent: #818cf8; --taglore-wn-warn: #fbbf24; }
 }
 .taglore-wn__header { padding: 1.5rem 1.5rem 0.5rem; }
 .taglore-wn__eyebrow { margin: 0 0 0.25rem; font-size: 0.75rem; letter-spacing: 0.06em; text-transform: uppercase; color: var(--taglore-wn-accent); font-weight: 600; }
@@ -33,3 +35,14 @@
 .taglore-wn__footer { display: flex; justify-content: flex-end; padding: 1rem 1.5rem 1.5rem; }
 .taglore-wn__close { border: 0; border-radius: 999px; padding: 0.55rem 1.2rem; background: var(--taglore-wn-accent); color: #fff; font: inherit; font-weight: 600; cursor: pointer; }
 .taglore-wn__close:focus-visible { outline: 3px solid color-mix(in srgb, var(--taglore-wn-accent) 40%, transparent); outline-offset: 2px; }
+.taglore-cl { color: var(--taglore-wn-fg); font: inherit; max-width: 760px; }
+.taglore-cl__search { width: 100%; box-sizing: border-box; padding: 0.6rem 0.9rem; margin-bottom: 1.5rem; border: 1px solid color-mix(in srgb, var(--taglore-wn-muted) 40%, transparent); border-radius: 10px; background: var(--taglore-wn-bg); color: inherit; font: inherit; }
+.taglore-cl__search:focus-visible { outline: 3px solid color-mix(in srgb, var(--taglore-wn-accent) 40%, transparent); outline-offset: 1px; }
+.taglore-cl__release { padding: 0 0 1.5rem 1.25rem; margin-left: 0.4rem; border-left: 2px solid color-mix(in srgb, var(--taglore-wn-muted) 30%, transparent); position: relative; }
+.taglore-cl__release::before { content: ""; position: absolute; left: -7px; top: 0.35rem; width: 12px; height: 12px; border-radius: 50%; background: var(--taglore-wn-accent); }
+.taglore-cl__release--patch::before { background: var(--taglore-wn-muted); width: 8px; height: 8px; left: -5px; }
+.taglore-cl__meta { margin: 0 0 0.25rem; font-size: 0.8rem; color: var(--taglore-wn-muted); }
+.taglore-cl__version { font-weight: 600; color: var(--taglore-wn-accent); margin-right: 0.5rem; }
+.taglore-cl__title { margin: 0 0 0.35rem; font-size: 1.1rem; line-height: 1.3; }
+.taglore-cl__summary { margin: 0 0 0.5rem; color: var(--taglore-wn-muted); line-height: 1.5; }
+.taglore-cl__empty { color: var(--taglore-wn-muted); }

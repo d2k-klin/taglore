@@ -5,6 +5,7 @@
 - **GitHub Releases** (Markdown, by default)
 - **a folder** in your Docker build context, so the image carries its own `latest.json`
 - **a workflow artifact** for a later job
+- **a changelog page**: `history.json` with every release, plus ready-made components to show it
 - **a Security section** (optional): vulnerabilities fixed and introduced since the last release, from Syft and Grype, plus a CycloneDX SBOM per release
 - **S3** for apps or CDNs that fetch notes at runtime
 - **your app's What's New dialog**, in any stack: a [web component](examples/apps/any-frontend) for any frontend, a [React component](packages/whats-new), or a few lines of code in your backend
@@ -105,6 +106,62 @@ export default function AppWhatsNew() {
 ```
 
 Both show each major/minor announcement once per browser; new visitors start up to date (`show-on-first-visit` / `showOnFirstVisit` to change that). For mobile, desktop or other clients: show the announcement when `announce` is `true` and `version` is newer than the one the user last saw.
+
+### Review before publishing: evidence and preview
+
+Every statement in the notes carries the commits it is based on. Taglore checks those against the real commit range: a hash the model invented, or one from outside this release, doesn't count. Statements left without any real commit are reported (`evidence: warn`, the default) or removed (`evidence: strict`). Commit-based notes are always fully backed.
+
+The workflow run summary shows the review table, and `preview-file` writes a self-contained page with what users will see next to the commits behind each statement:
+
+```yaml
+jobs:
+  preview:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with: { fetch-depth: 0 }
+      - uses: d2k-klin/taglore@v1
+        with:
+          copilot-token: ${{ secrets.COPILOT_TOKEN }}
+          evidence: strict
+          publish-github-release: false
+          output-dir: release-notes
+          preview-file: review/preview.html
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-review
+          path: |
+            release-notes
+            review
+
+  publish:
+    needs: preview
+    environment: release            # add required reviewers to this Environment
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with: { fetch-depth: 0 }
+      - uses: actions/download-artifact@v5
+        with: { name: release-review }
+      - uses: d2k-klin/taglore@v1
+        with:
+          notes-from: release-notes/release.json   # publish exactly what was reviewed
+```
+
+The reviewer approves or rejects in GitHub; re-running the `preview` job regenerates. To change the wording by hand, edit `release.json` and pass it with `notes-from`. Full workflow: [examples/workflows/review.yml](examples/workflows/review.yml).
+
+Evidence shows that a statement points at real changes in this release. It does not prove the wording is accurate, which is what the human review is for. The preview lists commit subjects, so keep it out of `output-dir`.
+
+### Changelog page
+
+Every run also writes `history.json`: this release followed by the earlier ones, newest first (`history-limit`, default 20). Earlier releases are read from your GitHub Releases, so there is still no database. Serve it next to `latest.json` and show it with one tag:
+
+```html
+<script type="module" src="https://cdn.jsdelivr.net/npm/@taglore/whats-new@1/dist/element.js"></script>
+<taglore-changelog src="/release-notes/history.json"></taglore-changelog>
+```
+
+or in React: `import { Changelog } from "@taglore/whats-new"` and `<Changelog />`. Both have a search box, show patch releases unless `announced-only` / `announcedOnly` is set, and render plain text only.
 
 ### Security notes and SBOM per release
 
@@ -221,7 +278,11 @@ More in [examples/workflows](examples/workflows).
 | `product-name` | repo name | Name used in the prompt |
 | `instructions` | | Extra guidance for the AI |
 | `exclude` | | Extra globs kept out of the AI context |
-| `max-diff-kb` | `100` (`20` for github-models) | Diff size sent to the AI |
+| `max-diff-kb` | `100` (`20` for github-models) | Size of the whole change context sent to the AI: commit list, file list and diff together |
+| `evidence` | `warn` | `warn` reports statements no commit supports, `strict` removes them |
+| `preview-file` | | Write a review page (what users see + the commits behind it) to this path |
+| `history-limit` | `20` | Releases kept in `history.json`; `0` turns it off |
+| `history-file` | | Local `history.json` to continue from instead of GitHub Releases |
 | `publish-github-release` | `true` | Create/update the GitHub Release and attach `taglore.json` |
 | `release-draft` | `false` | Create new releases as drafts |
 | `include-commits` | `true` | Collapsible commit list in the Markdown |
@@ -242,14 +303,15 @@ More in [examples/workflows](examples/workflows).
 | `github-token` | `github.token` | Token for Releases / GitHub Models |
 | `working-directory` | workspace | Repository folder |
 
-**Outputs:** `version`, `previous-version`, `release-type`, `announce`, `provider`, `release-url`, `markdown`, `json`, `latest-json-path`, `release-json-path`, `markdown-path`, `artifact-name`, and with `security-scan`: `security-open`, `security-introduced`, `security-fixed`, `security-open-critical`, `security-open-high`, `security-json-path`, `sbom-path`, `image-sbom-path`.
+**Outputs:** `version`, `previous-version`, `release-type`, `announce`, `provider`, `release-url`, `markdown`, `json`, `latest-json-path`, `release-json-path`, `markdown-path`, `history-json-path`, `unverified-statements`, `artifact-name`, and with `security-scan`: `security-open`, `security-introduced`, `security-fixed`, `security-open-critical`, `security-open-high`, `security-json-path`, `sbom-path`, `image-sbom-path`.
 
 ## CLI
 
 Same engine, for local previews or other CI systems:
 
 ```bash
-npx taglore generate --to v1.9.0 --dry-run                 # preview
+npx taglore generate --to v1.9.0 --dry-run                 # print the notes
+npx taglore generate --to v1.9.0 --dry-run --preview review.html   # review page with evidence
 npx taglore generate --from v1.7.0 --to v1.9.0 --out ./release-notes
 npx taglore generate --github --repo owner/app              # publish (needs GITHUB_TOKEN)
 npx taglore --help
@@ -260,6 +322,7 @@ npx taglore --help
 | File | Content |
 |---|---|
 | `latest.json` | The announcement apps should show: this release if it announces, otherwise the last one that did |
+| `history.json` | Every release, newest first, for a changelog page |
 | `release.json` | Structured notes for this exact release (also attached to the GitHub Release as `taglore.json`) |
 | `RELEASE_NOTES.md` | Markdown, same as the GitHub Release body |
 | `security.json` | With `security-scan`: introduced, fixed and open vulnerabilities, dependency and license changes |
@@ -270,6 +333,7 @@ JSON follows [`schema/release.schema.json`](schema/release.schema.json): `versio
 
 ## Security
 
+- Every statement must cite commits that exist in the compared range; with `evidence: strict`, statements that don't are removed before publishing.
 - AI output is untrusted: Taglore validates it against the schema, enforces length limits and strips HTML, links, URLs and control characters before anything is published. Both What's New components render plain text only; do the same in your own UI (no `innerHTML`).
 - The prompt tells the model to treat commits and code as data; Copilot runs without tools in an empty folder, so injected instructions can't run commands or read files.
 - Lockfiles, build output, binaries, images, `.env*`, `*.pem` and `*.key` never reach the AI. Add more with `exclude`.

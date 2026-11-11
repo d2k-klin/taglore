@@ -22,7 +22,11 @@ export function cleanText(input: string, max: number): string {
 
 function cleanItems(items: NoteItem[], limit: number): NoteItem[] {
   return items
-    .map((i) => ({ title: cleanText(i.title, 120), description: cleanText(i.description ?? "", 600) }))
+    .map((i) => ({
+      title: cleanText(i.title, 120),
+      description: cleanText(i.description ?? "", 600),
+      commits: [...new Set((i.commits ?? []).filter((c) => /^[0-9a-f]{7,40}$/i.test(c)).map((c) => c.toLowerCase().slice(0, 7)))],
+    }))
     .filter((i) => i.title.length > 0)
     .slice(0, limit);
 }
