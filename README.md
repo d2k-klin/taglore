@@ -141,7 +141,7 @@ This is useful evidence for the EU Cyber Resilience Act's vulnerability-handling
           s3-uri: s3://my-bucket/myapp/release-notes/
 ```
 
-Needs `id-token: write` for OIDC. The role only needs `s3:PutObject` on that prefix. `latest.json` is uploaded with a 60-second cache, `release.json` as immutable.
+Needs `id-token: write` for OIDC. The role only needs `s3:PutObject` on that prefix. `latest.json` is uploaded with a 60-second cache and the other files with 5 minutes, since every release overwrites the same keys.
 
 ### Artifact for another job
 

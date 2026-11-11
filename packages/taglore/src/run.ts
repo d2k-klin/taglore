@@ -11,7 +11,7 @@ import { type OutFile, writeOutputDir } from "./publish/files.js";
 import { GitHubReleases, parseRepo, RELEASE_ASSET_NAME } from "./publish/github-release.js";
 import { uploadToS3 } from "./publish/s3.js";
 import { sanitizeNotes } from "./sanitize.js";
-import { describeCounts, gateViolations } from "./security/diff.js";
+import { assertFailOn, describeCounts, gateViolations } from "./security/diff.js";
 import { renderSecuritySection } from "./security/markdown.js";
 import { runSecurityScan } from "./security/scan.js";
 import type { FailOn, SecurityReport } from "./security/types.js";
@@ -199,6 +199,7 @@ export async function runTaglore(opts: TagloreOptions = {}): Promise<TagloreResu
   let security: SecurityReport | null = null;
   let sbom: string | null = null;
   if (o.security) {
+    assertFailOn(o.securityFailOn ?? "none");
     const scan = await runSecurityScan({ cwd, from, to, syft: o.syftCommand, grype: o.grypeCommand, excludes: o.securityExcludes, log });
     security = scan.report;
     sbom = scan.sbom;
@@ -264,13 +265,13 @@ export async function runTaglore(opts: TagloreOptions = {}): Promise<TagloreResu
     securitySection: security ? renderSecuritySection(security, o.securityMaxItems) : undefined,
   });
   const files: OutFile[] = [
-    { name: "release.json", content: JSON.stringify(notes, null, 2) + "\n", contentType: "application/json", cacheControl: "public, max-age=31536000, immutable" },
+    { name: "release.json", content: JSON.stringify(notes, null, 2) + "\n", contentType: "application/json", cacheControl: "public, max-age=300" },
     { name: "RELEASE_NOTES.md", content: markdown, contentType: "text/markdown; charset=utf-8", cacheControl: "public, max-age=300" },
   ];
   if (security && sbom) {
     files.push(
-      { name: "security.json", content: JSON.stringify(security, null, 2) + "\n", contentType: "application/json", cacheControl: "public, max-age=31536000, immutable" },
-      { name: "sbom.cdx.json", content: sbom, contentType: "application/vnd.cyclonedx+json", cacheControl: "public, max-age=31536000, immutable" },
+      { name: "security.json", content: JSON.stringify(security, null, 2) + "\n", contentType: "application/json", cacheControl: "public, max-age=300" },
+      { name: "sbom.cdx.json", content: sbom, contentType: "application/vnd.cyclonedx+json", cacheControl: "public, max-age=300" },
     );
   }
   if (latest) {

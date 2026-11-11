@@ -68,7 +68,8 @@ export async function runSecurityScan(o: SecurityScanOptions): Promise<SecurityS
 
   // Download the vulnerability database once, then freeze it so both versions are judged by the same data.
   o.log.info(`Updating the Grype vulnerability database (grype ${grypeVersion})...`);
-  await exec(grype, ["db", "update"], { maxBuffer: MAX_BUFFER });
+  // Same cwd as the scans, so a repository .grype.yaml (e.g. db.cache-dir) applies to the update too.
+  await exec(grype, ["db", "update"], { cwd: o.cwd, maxBuffer: MAX_BUFFER });
   const env = { ...process.env, GRYPE_DB_AUTO_UPDATE: "false", SYFT_CHECK_FOR_APP_UPDATE: "false", GRYPE_CHECK_FOR_APP_UPDATE: "false" };
 
   const root = await mkdtemp(join(tmpdir(), "taglore-security-"));

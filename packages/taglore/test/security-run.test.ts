@@ -105,6 +105,10 @@ describe("runTaglore with security scanning", () => {
     expect(r.markdown).toContain("Known vulnerabilities in this version: 2 high, 1 medium.");
   });
 
+  it("rejects an invalid gate value before scanning", async () => {
+    await expect(runTaglore({ ...opts(), to: "v1.1.0", dryRun: true, securityFailOn: "hgh" as never })).rejects.toThrow(/Invalid security-fail-on/);
+  });
+
   it("explains how to install missing scanners", async () => {
     await expect(runTaglore({ ...opts(), to: "v1.1.0", dryRun: true, syftCommand: "/nonexistent/syft" })).rejects.toThrow(/Syft not found/);
   });

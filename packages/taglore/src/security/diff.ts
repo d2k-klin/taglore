@@ -1,5 +1,6 @@
 import { vulnKey } from "./parse.js";
 import {
+  FAIL_ON,
   SEVERITIES,
   type Component,
   type FailOn,
@@ -28,7 +29,8 @@ export function sortVulns(list: Vulnerability[]): Vulnerability[] {
 }
 
 export interface ScanResult {
-  components: Map<string, Component>;
+  /** Package identity (ecosystem + namespaced name) -> every installed version. */
+  components: Map<string, Component[]>;
   vulns: Map<string, Vulnerability>;
 }
 
@@ -49,19 +51,25 @@ export function diffScans(
   const added: Component[] = [];
   const removed: Component[] = [];
   const changed: SecurityReport["components"]["changed"] = [];
+  const versions = (list: Component[]) => [...new Set(list.map((c) => c.version))].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
   if (base) {
-    for (const [k, c] of head.components) {
+    for (const [k, list] of head.components) {
       const old = base.components.get(k);
-      if (!old) added.push(c);
-      else if (old.version !== c.version) changed.push({ name: c.name, type: c.type, from: old.version, to: c.version });
+      if (!old) added.push(...list);
+      else {
+        const from = versions(old).join(", ");
+        const to = versions(list).join(", ");
+        if (from !== to) changed.push({ name: list[0]!.name, type: list[0]!.type, from, to });
+      }
     }
-    for (const [k, c] of base.components) if (!head.components.has(k)) removed.push(c);
+    for (const [k, list] of base.components) if (!head.components.has(k)) removed.push(...list);
   }
   const byName = <T extends { name: string }>(a: T, b: T) => a.name.localeCompare(b.name);
 
-  const licenses = (s: ScanResult | null) => new Set([...(s?.components.values() ?? [])].flatMap((c) => c.licenses));
+  const licenses = (s: ScanResult | null) => new Set([...(s?.components.values() ?? [])].flat().flatMap((c) => c.licenses));
   const baseLicenses = licenses(base);
   const newLicenses = base ? [...licenses(head)].filter((l) => !baseLicenses.has(l)).sort() : [];
+  const total = [...head.components.values()].reduce((n, list) => n + list.length, 0);
 
   return {
     schemaVersion: 1,
@@ -73,7 +81,7 @@ export function diffScans(
       open: countBySeverity(open),
       introduced: countBySeverity(introduced),
       fixed: countBySeverity(fixed),
-      components: { total: head.components.size, added: added.length, removed: removed.length, changed: changed.length },
+      components: { total, added: added.length, removed: removed.length, changed: changed.length },
     },
     introduced,
     fixed,
@@ -88,8 +96,9 @@ export function diffScans(
  * (nothing to compare against) every open finding counts.
  */
 export function gateViolations(report: SecurityReport, failOn: FailOn): Vulnerability[] {
+  assertFailOn(failOn);
   if (failOn === "none") return [];
-  const limit = RANK[failOn] ?? -1;
+  const limit = RANK[failOn]!;
   const pool = report.previousVersion === null ? report.open : report.introduced;
   return pool.filter((v) => (RANK[v.severity] ?? 9) <= limit);
 }
@@ -97,4 +106,11 @@ export function gateViolations(report: SecurityReport, failOn: FailOn): Vulnerab
 export function describeCounts(c: SeverityCounts): string {
   const parts = SEVERITIES.filter((s) => c[s] > 0).map((s) => `${c[s]} ${s}`);
   return parts.length ? parts.join(", ") : "none";
+}
+
+/** A typo must never disable the gate silently. */
+export function assertFailOn(v: string): asserts v is FailOn {
+  if (!(FAIL_ON as readonly string[]).includes(v)) {
+    throw new Error(`Invalid security-fail-on "${v}". Use one of: ${FAIL_ON.join(", ")}.`);
+  }
 }

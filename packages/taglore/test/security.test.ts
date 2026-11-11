@@ -10,8 +10,8 @@ const head = { components: parseCycloneDx(sbomHead), vulns: parseGrype(grypeHead
 
 describe("parsing", () => {
   it("reads purl identity including scoped npm packages", () => {
-    expect(purlKey("pkg:npm/%40scope/http@0.21.0?x=1")).toEqual({ type: "npm", key: "npm:@scope/http" });
-    expect(purlKey("pkg:golang/github.com/a/b@v1.2.3")).toEqual({ type: "golang", key: "golang:github.com/a/b" });
+    expect(purlKey("pkg:npm/%40scope/http@0.21.0?x=1")).toEqual({ type: "npm", key: "npm:@scope/http", name: "@scope/http" });
+    expect(purlKey("pkg:golang/github.com/a/b@v1.2.3")).toEqual({ type: "golang", key: "golang:github.com/a/b", name: "github.com/a/b" });
     expect(purlKey("not-a-purl")).toBeNull();
   });
   it("skips file components and dedupes findings", () => {
@@ -56,6 +56,46 @@ describe("gate", () => {
   });
   it("first release gates on everything open", () => {
     expect(gateViolations(diffScans(null, head, meta(null)), "medium")).toHaveLength(2);
+  });
+});
+
+describe("review regressions", () => {
+  it("rejects an invalid fail-on value instead of disabling the gate", () => {
+    const r = diffScans(base, head, meta("v1.0.0"));
+    expect(() => gateViolations(r, "hgh" as never)).toThrow(/Invalid security-fail-on "hgh"/);
+  });
+  it("keeps Maven packages with the same artifactId but different groups apart", () => {
+    const m = (group: string) => ({
+      vulnerability: { id: "GHSA-same", severity: "High", fix: { versions: [], state: "unknown" } },
+      artifact: { name: "core", version: "1.0", type: "java-archive", purl: `pkg:maven/${group}/core@1.0` },
+    });
+    const before = parseGrype({ matches: [m("com.a")] });
+    const after = parseGrype({ matches: [m("com.a"), m("com.b")] });
+    expect(after.size).toBe(2);
+    const r = diffScans({ components: new Map(), vulns: before }, { components: new Map(), vulns: after }, meta("v1.0.0"));
+    expect(r.introduced.map((v) => v.package)).toEqual(["com.b/core"]);
+  });
+  it("detects a change when several versions of a package coexist", () => {
+    const sbom = (versions: string[], lic: string) => ({
+      components: versions.map((v) => ({ type: "library", name: "foo", version: v, purl: `pkg:npm/foo@${v}`, licenses: [{ license: { id: v === "1.1" ? lic : "MIT" } }] })),
+    });
+    const r = diffScans(
+      { components: parseCycloneDx(sbom(["1.0", "2.0"], "MIT")), vulns: new Map() },
+      { components: parseCycloneDx(sbom(["1.1", "2.0"], "BSD-3-Clause")), vulns: new Map() },
+      meta("v1.0.0"),
+    );
+    expect(r.components.changed).toEqual([{ name: "foo", type: "npm", from: "1.0, 2.0", to: "1.1, 2.0" }]);
+    expect(r.newLicenses).toEqual(["BSD-3-Clause"]);
+    expect(r.summary.components.total).toBe(2);
+  });
+  it("renders license-only changes", () => {
+    const sbom = (lic: string) => ({ components: [{ type: "library", name: "foo", version: "1.0", purl: "pkg:npm/foo@1.0", licenses: [{ license: { id: lic } }] }] });
+    const r = diffScans(
+      { components: parseCycloneDx(sbom("MIT")), vulns: new Map() },
+      { components: parseCycloneDx(sbom("AGPL-3.0-only")), vulns: new Map() },
+      meta("v1.0.0"),
+    );
+    expect(renderSecuritySection(r)).toContain("New licenses: AGPL-3.0-only.");
   });
 });
 

@@ -16,7 +16,7 @@ interface CdxComponent {
 }
 
 /** "pkg:npm/%40scope/name@1.2.3?x=y" -> { type: "npm", key: "npm:@scope/name" } */
-export function purlKey(purl: string | undefined | null): { type: string; key: string } | null {
+export function purlKey(purl: string | undefined | null): { type: string; key: string; name: string } | null {
   if (!purl?.startsWith("pkg:")) return null;
   const body = purl.slice(4).split(/[?#]/)[0] ?? "";
   const at = body.lastIndexOf("@");
@@ -30,7 +30,7 @@ export function purlKey(purl: string | undefined | null): { type: string; key: s
   } catch {
     // keep raw
   }
-  return { type, key: `${type}:${name}` };
+  return { type, key: `${type}:${name}`, name };
 }
 
 function licensesOf(c: CdxComponent): string[] {
@@ -42,9 +42,13 @@ function licensesOf(c: CdxComponent): string[] {
   return [...out].sort();
 }
 
-/** Flattens a CycloneDX document into unique library components (keyed by ecosystem + name). */
-export function parseCycloneDx(doc: unknown): Map<string, Component> {
-  const out = new Map<string, Component>();
+/**
+ * Flattens a CycloneDX document into library components, grouped by package identity
+ * (ecosystem + namespaced name from the purl). Every distinct installed version is kept,
+ * because lockfiles commonly hold several versions of the same package.
+ */
+export function parseCycloneDx(doc: unknown): Map<string, Component[]> {
+  const out = new Map<string, Component[]>();
   const walk = (list: CdxComponent[] | undefined) => {
     for (const c of list ?? []) {
       if (c.name && c.type !== "file" && c.type !== "operating-system") {
@@ -52,11 +56,11 @@ export function parseCycloneDx(doc: unknown): Map<string, Component> {
         const type = p?.type ?? c.type ?? "unknown";
         const key = p?.key ?? `${type}:${c.name}`;
         const version = c.version ?? "";
-        const existing = out.get(key);
-        // The same package can appear at several locations; keep the highest-sorting version for a stable diff.
-        if (!existing || version.localeCompare(existing.version, undefined, { numeric: true }) > 0) {
-          out.set(key, { name: c.name, type, version, purl: c.purl ?? null, licenses: licensesOf(c) });
-        }
+        const group = out.get(key) ?? [];
+        const same = group.find((g) => g.version === version);
+        if (same) same.licenses = [...new Set([...same.licenses, ...licensesOf(c)])].sort();
+        else group.push({ name: p?.name ?? c.name, type, version, purl: c.purl ?? null, licenses: licensesOf(c) });
+        out.set(key, group);
       }
       walk(c.components);
     }
@@ -100,7 +104,8 @@ export function parseGrype(doc: unknown): Map<string, Vulnerability> {
       id,
       aliases: [...new Set((m.relatedVulnerabilities ?? []).map((r) => r.id).filter((x): x is string => !!x && x !== id))].sort(),
       severity: normalizeSeverity(m.vulnerability?.severity),
-      package: pkg,
+      // Namespaced name from the purl (e.g. com.acme/core for Maven), so different groups never collide.
+      package: p?.name ?? pkg,
       type: p?.type ?? m.artifact?.type ?? "unknown",
       version: m.artifact?.version ?? "",
       fixedIn: m.vulnerability?.fix?.state === "fixed" ? (m.vulnerability.fix.versions ?? []) : [],

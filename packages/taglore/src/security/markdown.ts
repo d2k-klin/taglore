@@ -73,10 +73,11 @@ export function renderSecuritySection(r: SecurityReport, maxItems = 15): string 
   }
 
   const c = s.components;
-  if (r.previousVersion && (c.added || c.removed || c.changed)) {
-    md += `Dependencies: ${c.added} added, ${c.removed} removed, ${c.changed} changed (${c.total} total).`;
-    if (r.newLicenses.length) md += ` New licenses: ${r.newLicenses.map(cell).join(", ")}.`;
-    md += "\n\n";
+  if (r.previousVersion && (c.added || c.removed || c.changed || r.newLicenses.length)) {
+    const parts: string[] = [];
+    if (c.added || c.removed || c.changed) parts.push(`Dependencies: ${c.added} added, ${c.removed} removed, ${c.changed} changed (${c.total} total).`);
+    if (r.newLicenses.length) parts.push(`New licenses: ${r.newLicenses.map(cell).join(", ")}.`);
+    md += parts.join(" ") + "\n\n";
   }
 
   md += `<sub>Scanned with Syft ${cell(r.tools.syft ?? "?")} and Grype ${cell(r.tools.grype ?? "?")}; both versions were checked against the same vulnerability database. The full report and the CycloneDX SBOM are attached as security.json and sbom.cdx.json.</sub>\n\n`;
