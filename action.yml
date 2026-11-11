@@ -73,6 +73,31 @@ inputs:
     description: Maximum diff size sent to the AI. Default 100 (copilot) or 20 (github-models).
     required: false
 
+  # Security (optional): SBOM + vulnerability diff, from scanners, never AI
+  security-scan:
+    description: Scan both versions with Syft (SBOM) and Grype (vulnerabilities) and add a Security section, security.json and sbom.cdx.json. Both versions are checked against the same vulnerability database.
+    required: false
+    default: "false"
+  security-fail-on:
+    description: "none | critical | high | medium | low. Fail before publishing when the release introduces vulnerabilities at or above this severity (for a first release: any open ones)."
+    required: false
+    default: none
+  security-max-items:
+    description: Max vulnerability rows in the Markdown table. The rest stay in security.json.
+    required: false
+    default: "15"
+  security-exclude:
+    description: Extra Syft exclude patterns, comma or newline separated, e.g. ./test/**,./examples/**
+    required: false
+  syft-version:
+    description: Syft version to install when syft is not on PATH (e.g. v1.18.1). Pin it for reproducible SBOMs.
+    required: false
+    default: latest
+  grype-version:
+    description: Grype version to install when grype is not on PATH.
+    required: false
+    default: latest
+
   # Outputs
   publish-github-release:
     description: Create or update the GitHub Release for the tag and attach taglore.json.
@@ -143,6 +168,20 @@ outputs:
     description: Path of RELEASE_NOTES.md when output-dir is set.
   artifact-name:
     description: Name of the uploaded artifact.
+  security-open:
+    description: Number of known vulnerabilities in this version (security-scan only).
+  security-introduced:
+    description: Number of vulnerabilities introduced since the previous version.
+  security-fixed:
+    description: Number of vulnerabilities fixed since the previous version.
+  security-open-critical:
+    description: Open critical vulnerabilities.
+  security-open-high:
+    description: Open high vulnerabilities.
+  security-json-path:
+    description: Path of security.json when output-dir is set.
+  sbom-path:
+    description: Path of sbom.cdx.json when output-dir is set.
 
 runs:
   using: node24

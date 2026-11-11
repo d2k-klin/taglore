@@ -7,3 +7,8 @@ export { buildPrompt, extractJson } from "./prompt.js";
 export { renderMarkdown } from "./markdown.js";
 export { DEFAULT_EXCLUDES } from "./collect.js";
 export { TAGLORE_VERSION } from "./meta.js";
+export * from "./security/types.js";
+export { diffScans, gateViolations, countBySeverity } from "./security/diff.js";
+export { parseCycloneDx, parseGrype } from "./security/parse.js";
+export { renderSecuritySection } from "./security/markdown.js";
+export { runSecurityScan } from "./security/scan.js";

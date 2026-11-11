@@ -1,0 +1,29 @@
+# Release notes with a Security section, a CycloneDX SBOM per release, and a gate.
+# Useful evidence for the EU Cyber Resilience Act (SBOM, vulnerability handling).
+name: Release notes
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release-notes:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - id: notes
+        uses: d2k-klin/taglore@v1
+        with:
+          copilot-token: ${{ secrets.COPILOT_TOKEN }}
+          security-scan: true
+          security-fail-on: high        # nothing is published if the release introduces high/critical findings
+          syft-version: v1.18.1         # pin for reproducible SBOMs
+          output-dir: release-notes     # security.json and sbom.cdx.json land here too
+
+      - run: echo "Fixed ${{ steps.notes.outputs.security-fixed }}, introduced ${{ steps.notes.outputs.security-introduced }}"

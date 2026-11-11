@@ -9,13 +9,14 @@ function section(title: string, items: NoteItem[]): string {
 
 export function renderMarkdown(
   n: ReleaseNotes,
-  opts: { commits: Commit[]; compareUrl?: string | null; includeCommits?: boolean },
+  opts: { commits: Commit[]; compareUrl?: string | null; includeCommits?: boolean; securitySection?: string },
 ): string {
   let md = `## ${n.title}\n\n${n.summary}\n\n`;
   md += section("⚠️ Breaking changes", n.breaking);
   md += section("✨ Highlights", n.highlights);
   md += section("🚀 Improvements", n.improvements);
   md += section("🐛 Fixes", n.fixes);
+  if (opts.securitySection) md += opts.securitySection;
 
   if (opts.includeCommits !== false && opts.commits.length) {
     const list = opts.commits

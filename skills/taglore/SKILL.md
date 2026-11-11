@@ -54,6 +54,7 @@ Pick the extra inputs from what the user needs:
 | Notes only, no GitHub Release | `publish-github-release: false` |
 | Review before publishing | `release-draft: true`, or run the job in an Environment with required reviewers |
 | Different language or voice | `language`, `tone`, `audience`, `product-name`, `instructions` |
+| Security notes + SBOM per release | `security-scan: true` (Syft + Grype, installed automatically); add `security-fail-on: high` to block releases that introduce high/critical findings |
 | Keep paths away from the AI | `exclude: "infra/**, **/*.sql"` (lockfiles, build output, images, `.env*`, keys are always excluded) |
 
 Ready-made workflows to copy and adapt live in `examples/workflows/` of the Taglore repo: `basic.yml`, `docker.yml`, `artifact.yml`, `s3.yml`, `compare-explicit.yml`, `major-review.yml`.
@@ -125,6 +126,15 @@ Behaviour to explain to the user: each major/minor announcement shows once per b
 - `ai-for` (default `major,minor`): which release types get AI notes; others use commit messages.
 - `announce-on` (default `major,minor`): which release types write a new `latest.json`. Other releases copy the last announced `taglore.json` from GitHub Releases (or from `baseline-file`).
 
+## Security scanning (optional)
+
+With `security-scan: true`, Taglore scans the released tag and the base version in separate git worktrees with Syft and Grype, using one frozen vulnerability database for both. It adds a "🔒 Security" section (fixed, introduced, open findings; dependency and license changes), `security.json` and `sbom.cdx.json`. These facts never pass through the AI.
+
+- Recommend it for products sold in the EU (Cyber Resilience Act evidence: SBOM per release, vulnerability handling), but don't call it CRA compliance on its own.
+- Lockfile scans don't cover OS packages in a container base image; suggest a separate image scan for that.
+- False positives or accepted risks go in a `.grype.yaml` at the repository root.
+- `security-fail-on` runs before anything is published, so a tripped gate leaves no release behind.
+
 ## Troubleshooting
 
 | Symptom | Fix |
@@ -134,5 +144,7 @@ Behaviour to explain to the user: each major/minor announcement shows once per b
 | "is not a semver tag" | Set `tag-prefix`, or use `from`/`to` (explicit compare) |
 | Copilot 401/403, or fallback notes every time | Personal repo without `copilot-token`, PAT missing Copilot Requests, or org policy off. Check the run log warning |
 | `latest.json` missing on a patch | The previous minor release has no `taglore.json` asset (released before Taglore). Re-run Taglore for that tag once, or pass `baseline-file` |
+| "Syft not found" / "Grype not found" (CLI) | Install them, or use the Action, which installs them automatically |
+| Security gate failed | The error lists the findings; upgrade the dependency, or record an accepted risk in `.grype.yaml` |
 | GitHub Models 413 or token limit | Lower `max-diff-kb` (default 20 for github-models) |
 | Notes mention internal work | Add guidance in `instructions`, or `exclude` the paths |

@@ -32,6 +32,25 @@ async function ensureCopilot(version: string): Promise<string> {
   return join(prefix, "node_modules", ".bin", "copilot");
 }
 
+/** Uses syft/grype from PATH, or installs them into RUNNER_TEMP with Anchore's official install script. */
+async function ensureAnchoreTool(name: "syft" | "grype", version: string): Promise<string> {
+  const { spawnSync } = await import("node:child_process");
+  const { join } = await import("node:path");
+  const { tmpdir } = await import("node:os");
+  if (!/^(latest|v?\d+\.\d+\.\d+)$/.test(version)) throw new Error(`Invalid ${name}-version "${version}"`);
+  if (version === "latest" && spawnSync(name, ["--version"], { stdio: "ignore" }).status === 0) return name;
+  const dir = join(process.env.RUNNER_TEMP ?? tmpdir(), "taglore-bin");
+  const tag = version === "latest" ? "" : version.startsWith("v") ? version : `v${version}`;
+  core.info(`Installing ${name} ${version}...`);
+  const r = spawnSync(
+    "sh",
+    ["-c", `curl -sSfL "https://raw.githubusercontent.com/anchore/${name}/main/install.sh" | sh -s -- -b "$1" $2`, "sh", dir, tag],
+    { stdio: "inherit" },
+  );
+  if (r.status !== 0) throw new Error(`Failed to install ${name}`);
+  return join(dir, name);
+}
+
 async function main() {
   const githubToken = input("github-token") ?? process.env.GITHUB_TOKEN;
   const copilotToken = input("copilot-token");
@@ -42,8 +61,18 @@ async function main() {
   const provider = (input("ai-provider") ?? "copilot") as ProviderName;
   const copilotCommand = provider === "copilot" ? await ensureCopilot(input("copilot-version") ?? "latest") : undefined;
 
+  const security = bool("security-scan", false);
+  const syftCommand = security ? await ensureAnchoreTool("syft", input("syft-version") ?? "latest") : undefined;
+  const grypeCommand = security ? await ensureAnchoreTool("grype", input("grype-version") ?? "latest") : undefined;
+
   const result = await runTaglore({
     copilotCommand,
+    security,
+    securityFailOn: input("security-fail-on") as "none" | "critical" | "high" | "medium" | "low" | undefined,
+    securityMaxItems: input("security-max-items") ? Number(input("security-max-items")) : undefined,
+    securityExcludes: list<string>("security-exclude"),
+    syftCommand,
+    grypeCommand,
     cwd: input("working-directory") ?? process.cwd(),
     to: input("to"),
     from,
@@ -108,6 +137,17 @@ async function main() {
   core.setOutput("latest-json-path", byName("latest.json"));
   core.setOutput("release-json-path", byName("release.json"));
   core.setOutput("markdown-path", byName("RELEASE_NOTES.md"));
+  core.setOutput("security-json-path", byName("security.json"));
+  core.setOutput("sbom-path", byName("sbom.cdx.json"));
+  if (result.security) {
+    const sum = (c: Record<string, number>) => String(Object.values(c).reduce((a, b) => a + b, 0));
+    const s = result.security.summary;
+    core.setOutput("security-open", sum(s.open));
+    core.setOutput("security-introduced", sum(s.introduced));
+    core.setOutput("security-fixed", sum(s.fixed));
+    core.setOutput("security-open-critical", String(s.open.critical));
+    core.setOutput("security-open-high", String(s.open.high));
+  }
 
   await core.summary
     .addHeading(`Taglore: ${result.version}`, 2)

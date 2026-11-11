@@ -29,6 +29,11 @@ AI
   --exclude <glob>        Extra path to keep out of the AI context (repeatable)
   --max-diff-kb <n>       Diff size sent to the AI (default: 100, github-models: 20)
 
+Security (needs syft and grype on PATH)
+  --security              Add a Security section, security.json and sbom.cdx.json
+  --security-fail-on <s>  none | critical | high | medium | low (default: none)
+  --security-exclude <g>  Extra Syft exclude pattern (repeatable)
+
 Output
   --out <dir>             Write latest.json, release.json, RELEASE_NOTES.md here
   --github / --no-github  Create or update the GitHub Release (default: --no-github in the CLI)
@@ -77,6 +82,9 @@ async function main() {
       baseline: { type: "string" },
       "dry-run": { type: "boolean" },
       json: { type: "boolean" },
+      security: { type: "boolean" },
+      "security-fail-on": { type: "string" },
+      "security-exclude": { type: "string", multiple: true },
       help: { type: "boolean", short: "h" },
       version: { type: "boolean", short: "v" },
     },
@@ -110,6 +118,9 @@ async function main() {
     announceOn: list<ReleaseType>(values["announce-on"]),
     baselineFile: values.baseline,
     dryRun: values["dry-run"],
+    security: values.security,
+    securityFailOn: values["security-fail-on"] as "none" | "critical" | "high" | "medium" | "low" | undefined,
+    securityExcludes: values["security-exclude"],
     log: quiet ? { info: () => {}, warn: (m) => console.error(`warning: ${m}`) } : undefined,
   });
 

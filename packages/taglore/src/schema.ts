@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { SecuritySummarySchema } from "./security/types.js";
 
 /** Bump when the JSON shape changes in a breaking way. */
 export const SCHEMA_VERSION = 1 as const;
@@ -42,5 +43,7 @@ export const ReleaseNotesSchema = AiNotesSchema.extend({
     provider: z.string(),
     model: z.string().nullable(),
   }),
+  /** Present when the release was scanned (security-scan: true). Counts only; details are in security.json. */
+  security: SecuritySummarySchema.optional(),
 });
 export type ReleaseNotes = z.infer<typeof ReleaseNotesSchema>;

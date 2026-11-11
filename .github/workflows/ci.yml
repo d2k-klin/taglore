@@ -53,3 +53,44 @@ jobs:
           test "${{ steps.notes.outputs.previous-version }}" = "v1.0.0"
           test "${{ steps.notes.outputs.announce }}" = "true"
           test -f "$RUNNER_TEMP/demo/out/latest.json"
+
+  security-smoke-test:
+    # Real Syft + Grype against a demo repo: lodash goes from 4.17.15 (known advisories) to 4.17.21.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - name: Create a throwaway repo with a vulnerable and a fixed release
+        run: |
+          mkdir -p "$RUNNER_TEMP/sec" && cd "$RUNNER_TEMP/sec"
+          git init -q -b main && git config user.email ci@example.com && git config user.name ci
+          lock() {
+            cat > package-lock.json <<JSON
+          {"name":"demo","version":"1.0.0","lockfileVersion":3,"requires":true,
+           "packages":{"":{"name":"demo","version":"1.0.0","dependencies":{"lodash":"$1"}},
+           "node_modules/lodash":{"version":"$1","resolved":"https://registry.npmjs.org/lodash/-/lodash-$1.tgz","license":"MIT"}}}
+          JSON
+            echo '{"name":"demo","version":"1.0.0","dependencies":{"lodash":"'"$1"'"}}' > package.json
+          }
+          lock 4.17.15 && git add . && git commit -qm "feat: first release" && git tag v1.0.0
+          lock 4.17.21 && git add . && git commit -qm "fix: upgrade lodash" && git tag v1.1.0
+      - id: notes
+        uses: ./
+        with:
+          working-directory: ${{ runner.temp }}/sec
+          to: v1.1.0
+          ai-provider: none
+          publish-github-release: false
+          output-dir: out
+          security-scan: true
+          security-fail-on: high
+      - name: Check the security results
+        run: |
+          echo "open=${{ steps.notes.outputs.security-open }} introduced=${{ steps.notes.outputs.security-introduced }} fixed=${{ steps.notes.outputs.security-fixed }}"
+          test "${{ steps.notes.outputs.security-fixed }}" -gt 0
+          test "${{ steps.notes.outputs.security-introduced }}" = "0"
+          test -s "$RUNNER_TEMP/sec/out/security.json"
+          test -s "$RUNNER_TEMP/sec/out/sbom.cdx.json"
+          grep -q "### 🔒 Security" "$RUNNER_TEMP/sec/out/RELEASE_NOTES.md"
+          sed -n '/### 🔒 Security/,/<sub>/p' "$RUNNER_TEMP/sec/out/RELEASE_NOTES.md" >> "$GITHUB_STEP_SUMMARY"

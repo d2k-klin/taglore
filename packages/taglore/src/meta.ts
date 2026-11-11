@@ -1,2 +1,2 @@
 /** Kept in sync with packages/taglore/package.json by the release process. */
-export const TAGLORE_VERSION = "1.0.1";
+export const TAGLORE_VERSION = "1.1.0";
