@@ -33,6 +33,8 @@ Security (needs syft and grype on PATH)
   --security              Add a Security section, security.json and sbom.cdx.json
   --security-fail-on <s>  none | critical | high | medium | low (default: none)
   --security-exclude <g>  Extra Syft exclude pattern (repeatable)
+  --security-image <ref>  Also scan an image, e.g. ghcr.io/acme/app:{version} (implies --security)
+  --notes-from <file>     Reuse an earlier release.json instead of generating notes
 
 Output
   --out <dir>             Write latest.json, release.json, RELEASE_NOTES.md here
@@ -85,6 +87,8 @@ async function main() {
       security: { type: "boolean" },
       "security-fail-on": { type: "string" },
       "security-exclude": { type: "string", multiple: true },
+      "security-image": { type: "string" },
+      "notes-from": { type: "string" },
       help: { type: "boolean", short: "h" },
       version: { type: "boolean", short: "v" },
     },
@@ -121,6 +125,8 @@ async function main() {
     security: values.security,
     securityFailOn: values["security-fail-on"] as "none" | "critical" | "high" | "medium" | "low" | undefined,
     securityExcludes: values["security-exclude"],
+    securityImage: values["security-image"],
+    notesFrom: values["notes-from"],
     log: quiet ? { info: () => {}, warn: (m) => console.error(`warning: ${m}`) } : undefined,
   });
 

@@ -88,6 +88,8 @@ export function diffScans(
     open,
     components: { added: added.sort(byName), removed: removed.sort(byName), changed: changed.sort(byName) },
     newLicenses,
+    sources: { repository: true, image: null, previousImage: null },
+    warnings: [],
   };
 }
 

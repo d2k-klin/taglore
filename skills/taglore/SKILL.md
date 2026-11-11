@@ -54,6 +54,7 @@ Pick the extra inputs from what the user needs:
 | Notes only, no GitHub Release | `publish-github-release: false` |
 | Review before publishing | `release-draft: true`, or run the job in an Environment with required reviewers |
 | Different language or voice | `language`, `tone`, `audience`, `product-name`, `instructions` |
+| Image scan (OS packages) | Second step after `docker build`: `notes-from` + `security-image: <image>:{version}` |
 | Security notes + SBOM per release | `security-scan: true` (Syft + Grype, installed automatically); add `security-fail-on: high` to block releases that introduce high/critical findings |
 | Keep paths away from the AI | `exclude: "infra/**, **/*.sql"` (lockfiles, build output, images, `.env*`, keys are always excluded) |
 
@@ -131,7 +132,7 @@ Behaviour to explain to the user: each major/minor announcement shows once per b
 With `security-scan: true`, Taglore scans the released tag and the base version in separate git worktrees with Syft and Grype, using one frozen vulnerability database for both. It adds a "🔒 Security" section (fixed, introduced, open findings; dependency and license changes), `security.json` and `sbom.cdx.json`. These facts never pass through the AI.
 
 - Recommend it for products sold in the EU (Cyber Resilience Act evidence: SBOM per release, vulnerability handling), but don't call it CRA compliance on its own.
-- Lockfile scans don't cover OS packages in a container base image; suggest a separate image scan for that.
+- If the app ships as a container, add the image scan: keep the first Taglore step before `docker build` (notes into the image, `publish-github-release: false`), add a second step after the build with `notes-from: <output-dir>/release.json` and `security-image: <registry>/<app>:{version}` (or `{semver}` when image tags have no "v"). The second step publishes the release. The image must exist locally or be pullable; the previous release's image comes from the same template.
 - False positives or accepted risks go in a `.grype.yaml` at the repository root.
 - `security-fail-on` runs before anything is published, so a tripped gate leaves no release behind.
 
@@ -145,6 +146,8 @@ With `security-scan: true`, Taglore scans the released tag and the base version 
 | Copilot 401/403, or fallback notes every time | Personal repo without `copilot-token`, PAT missing Copilot Requests, or org policy off. Check the run log warning |
 | `latest.json` missing on a patch | The previous minor release has no `taglore.json` asset (released before Taglore). Re-run Taglore for that tag once, or pass `baseline-file` |
 | "Syft not found" / "Grype not found" (CLI) | Install them, or use the Action, which installs them automatically |
+| "Could not scan image" | The image for this tag isn't built/pushed yet, or the template doesn't match the tag format (`{version}` vs `{semver}`) |
+| "notes-from: … is for vX, but this release is vY" | The first step wrote notes for a different tag; both steps must use the same `to` |
 | Security gate failed | The error lists the findings; upgrade the dependency, or record an accepted risk in `.grype.yaml` |
 | GitHub Models 413 or token limit | Lower `max-diff-kb` (default 20 for github-models) |
 | Notes mention internal work | Add guidance in `instructions`, or `exclude` the paths |

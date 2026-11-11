@@ -1,0 +1,53 @@
+# Notes baked into the image, then a security scan of the repository AND the built image.
+# Step 1 writes the notes before the build. Step 2 reuses them (no second AI call),
+# scans the image against the previous release's image, and publishes the GitHub Release.
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+  packages: write
+
+env:
+  IMAGE: ghcr.io/${{ github.repository }}
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Release notes (into the image)
+        uses: d2k-klin/taglore@v1
+        with:
+          copilot-token: ${{ secrets.COPILOT_TOKEN }}
+          publish-github-release: false
+          output-dir: release-notes
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: ${{ env.IMAGE }}:${{ github.ref_name }}
+
+      - name: Security (repository + image) and publish
+        id: security
+        uses: d2k-klin/taglore@v1
+        with:
+          notes-from: release-notes/release.json
+          security-image: ${{ env.IMAGE }}:{version}
+          security-fail-on: critical
+          syft-version: v1.57.1
+
+      # ... deploy only after the gate passed

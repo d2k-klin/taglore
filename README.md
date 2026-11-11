@@ -127,7 +127,31 @@ You get:
 
 The security facts come from the scanners only. The AI never writes or edits them. Each version is checked out into its own git worktree, so the scan reflects the committed manifests and lockfiles at that tag. A `.grype.yaml` in the repository root (ignore rules, VEX) applies to both scans. Pin `syft-version` and `grype-version` for reproducible SBOMs.
 
-This is useful evidence for the EU Cyber Resilience Act's vulnerability-handling and SBOM duties, but it is not a compliance programme on its own: lockfile scans don't see OS packages in your base image (scan the built image separately), and reachability is not analysed.
+#### Scan the built image too
+
+Lockfiles don't show OS packages or anything installed during `docker build`. Add `security-image` to scan the image as well, and compare it with the previous release's image. Because the notes are baked into the image, this takes two Taglore steps: notes before the build, the image scan after it. The second step reuses the first step's notes (`notes-from`), so there is no second AI call and the text stays identical.
+
+```yaml
+      - uses: d2k-klin/taglore@v1            # 1. notes, baked into the image
+        with:
+          copilot-token: ${{ secrets.COPILOT_TOKEN }}
+          publish-github-release: false
+          output-dir: release-notes
+
+      - run: docker build -t ghcr.io/acme/app:${{ github.ref_name }} . && docker push ghcr.io/acme/app:${{ github.ref_name }}
+
+      - uses: d2k-klin/taglore@v1            # 2. security: repository + image, then publish
+        with:
+          notes-from: release-notes/release.json
+          security-image: ghcr.io/acme/app:{version}   # {semver} for tags without the "v"
+          security-fail-on: critical
+```
+
+The image can be local (`docker build` in the same job) or in a registry; Syft uses your `docker login`. The previous release's image comes from the same template. If it no longer exists, Taglore says so in the notes and lists the image findings as open rather than calling them all "introduced". The image's own SBOM is attached as `sbom-image.cdx.json`.
+
+The gate in step 2 runs after the image is built, so when it trips, nothing is published to the GitHub Release, but the image already exists. Push it to a staging tag first, or keep the deploy behind this step, if a blocked release must never leave an image behind.
+
+This is useful evidence for the EU Cyber Resilience Act's vulnerability-handling and SBOM duties, not a compliance programme on its own. Reachability is not analysed: a finding means a vulnerable version is present, not that it is exploitable in your app.
 
 ### S3
 
@@ -211,12 +235,14 @@ More in [examples/workflows](examples/workflows).
 | `security-fail-on` | `none` | `critical`, `high`, `medium`, `low`: fail before publishing when the release introduces findings at or above it |
 | `security-max-items` | `15` | Max rows in the Security table |
 | `security-exclude` | | Extra Syft exclude patterns |
+| `security-image` | | Also scan the built image, e.g. `ghcr.io/acme/app:{version}`; previous image from the same template |
+| `notes-from` | | Reuse an earlier step's `release.json` instead of generating notes again |
 | `syft-version` / `grype-version` | `latest` | Scanner versions to install (pin for reproducibility) |
 | `dry-run` | `false` | Generate and print only |
 | `github-token` | `github.token` | Token for Releases / GitHub Models |
 | `working-directory` | workspace | Repository folder |
 
-**Outputs:** `version`, `previous-version`, `release-type`, `announce`, `provider`, `release-url`, `markdown`, `json`, `latest-json-path`, `release-json-path`, `markdown-path`, `artifact-name`, and with `security-scan`: `security-open`, `security-introduced`, `security-fixed`, `security-open-critical`, `security-open-high`, `security-json-path`, `sbom-path`.
+**Outputs:** `version`, `previous-version`, `release-type`, `announce`, `provider`, `release-url`, `markdown`, `json`, `latest-json-path`, `release-json-path`, `markdown-path`, `artifact-name`, and with `security-scan`: `security-open`, `security-introduced`, `security-fixed`, `security-open-critical`, `security-open-high`, `security-json-path`, `sbom-path`, `image-sbom-path`.
 
 ## CLI
 
@@ -237,7 +263,8 @@ npx taglore --help
 | `release.json` | Structured notes for this exact release (also attached to the GitHub Release as `taglore.json`) |
 | `RELEASE_NOTES.md` | Markdown, same as the GitHub Release body |
 | `security.json` | With `security-scan`: introduced, fixed and open vulnerabilities, dependency and license changes |
-| `sbom.cdx.json` | With `security-scan`: CycloneDX SBOM of the released version |
+| `sbom.cdx.json` | With `security-scan`: CycloneDX SBOM of the repository at the released tag |
+| `sbom-image.cdx.json` | With `security-image`: CycloneDX SBOM of the released container image |
 
 JSON follows [`schema/release.schema.json`](schema/release.schema.json): `version`, `previousVersion`, `releaseType`, `announce`, `date`, `title`, `summary`, `highlights[]`, `improvements[]`, `fixes[]`, `breaking[]`, `generator`. Generate types for your language from the schema with any JSON Schema tool.
 

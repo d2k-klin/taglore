@@ -80,6 +80,9 @@ export function renderSecuritySection(r: SecurityReport, maxItems = 15): string 
     md += parts.join(" ") + "\n\n";
   }
 
-  md += `<sub>Scanned with Syft ${cell(r.tools.syft ?? "?")} and Grype ${cell(r.tools.grype ?? "?")}; both versions were checked against the same vulnerability database. The full report and the CycloneDX SBOM are attached as security.json and sbom.cdx.json.</sub>\n\n`;
+  for (const w of r.warnings) md += `> ⚠️ ${cell(w)}\n\n`;
+  const what = r.sources.image ? `the repository's lockfiles and the image ${cell(r.sources.image)}` : "the repository's lockfiles and manifests";
+  const files = r.sources.image ? "security.json, sbom.cdx.json and sbom-image.cdx.json" : "security.json and sbom.cdx.json";
+  md += `<sub>Scanned ${what} with Syft ${cell(r.tools.syft ?? "?")} and Grype ${cell(r.tools.grype ?? "?")}; both versions were checked against the same vulnerability database. The full report and the CycloneDX SBOMs are attached as ${files}.</sub>\n\n`;
   return md;
 }

@@ -15,6 +15,8 @@ interface CdxComponent {
   components?: CdxComponent[];
 }
 
+const OS_TYPES = new Set(["deb", "apk", "rpm", "alpm", "alpine", "debian"]);
+
 /** "pkg:npm/%40scope/name@1.2.3?x=y" -> { type: "npm", key: "npm:@scope/name" } */
 export function purlKey(purl: string | undefined | null): { type: string; key: string; name: string } | null {
   if (!purl?.startsWith("pkg:")) return null;
@@ -30,7 +32,9 @@ export function purlKey(purl: string | undefined | null): { type: string; key: s
   } catch {
     // keep raw
   }
-  return { type, key: `${type}:${name}`, name };
+  // For OS packages the namespace is the distro (debian/openssl): keep it in the identity, not in the label.
+  const label = OS_TYPES.has(type) ? (name.split("/").pop() ?? name) : name;
+  return { type, key: `${type}:${name}`, name: label };
 }
 
 function licensesOf(c: CdxComponent): string[] {

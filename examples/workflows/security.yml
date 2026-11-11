@@ -23,7 +23,7 @@ jobs:
           copilot-token: ${{ secrets.COPILOT_TOKEN }}
           security-scan: true
           security-fail-on: high        # nothing is published if the release introduces high/critical findings
-          syft-version: v1.18.1         # pin for reproducible SBOMs
+          syft-version: v1.57.1         # pin for reproducible SBOMs
           output-dir: release-notes     # security.json and sbom.cdx.json land here too
 
       - run: echo "Fixed ${{ steps.notes.outputs.security-fixed }}, introduced ${{ steps.notes.outputs.security-introduced }}"

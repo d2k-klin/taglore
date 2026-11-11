@@ -94,3 +94,39 @@ jobs:
           test -s "$RUNNER_TEMP/sec/out/sbom.cdx.json"
           grep -q "### 🔒 Security" "$RUNNER_TEMP/sec/out/RELEASE_NOTES.md"
           sed -n '/### 🔒 Security/,/<sub>/p' "$RUNNER_TEMP/sec/out/RELEASE_NOTES.md" >> "$GITHUB_STEP_SUMMARY"
+
+      # Two-step Docker flow: notes before the build (baked into the image), image scan after it.
+      - id: before-build
+        uses: ./
+        with:
+          working-directory: ${{ runner.temp }}/sec
+          to: v1.1.0
+          ai-provider: none
+          publish-github-release: false
+          output-dir: out-a
+      - name: Build an old and a new image (Alpine 3.14.0 -> 3.20.3)
+        run: |
+          printf 'FROM alpine:3.14.0\n' | docker build -q -t taglore-demo:v1.0.0 -
+          printf 'FROM alpine:3.20.3\nCOPY out-a/ /srv/release-notes/\n' > "$RUNNER_TEMP/sec/Dockerfile.ci"
+          docker build -q -t taglore-demo:v1.1.0 -f "$RUNNER_TEMP/sec/Dockerfile.ci" "$RUNNER_TEMP/sec"
+      - id: after-build
+        uses: ./
+        with:
+          working-directory: ${{ runner.temp }}/sec
+          to: v1.1.0
+          ai-provider: none
+          publish-github-release: false
+          notes-from: out-a/release.json
+          security-image: taglore-demo:{version}
+          output-dir: out-b
+      - name: Check the image scan
+        run: |
+          echo "image: open=${{ steps.after-build.outputs.security-open }} introduced=${{ steps.after-build.outputs.security-introduced }} fixed=${{ steps.after-build.outputs.security-fixed }}"
+          # Upgrading the base image from Alpine 3.14.0 must fix OS package findings on top of lodash.
+          test "${{ steps.after-build.outputs.security-fixed }}" -gt "${{ steps.notes.outputs.security-fixed }}"
+          test -s "$RUNNER_TEMP/sec/out-b/sbom-image.cdx.json"
+          grep -q '"apk"' "$RUNNER_TEMP/sec/out-b/security.json"
+          grep -q "the image taglore-demo:v1.1.0" "$RUNNER_TEMP/sec/out-b/RELEASE_NOTES.md"
+          # The notes text is reused, not regenerated.
+          test "$(jq -r .title "$RUNNER_TEMP/sec/out-a/release.json")" = "$(jq -r .title "$RUNNER_TEMP/sec/out-b/release.json")"
+          { echo; echo "#### With the image scan"; sed -n '/### 🔒 Security/,/<sub>/p' "$RUNNER_TEMP/sec/out-b/RELEASE_NOTES.md"; } >> "$GITHUB_STEP_SUMMARY"

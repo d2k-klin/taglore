@@ -61,7 +61,8 @@ async function main() {
   const provider = (input("ai-provider") ?? "copilot") as ProviderName;
   const copilotCommand = provider === "copilot" ? await ensureCopilot(input("copilot-version") ?? "latest") : undefined;
 
-  const security = bool("security-scan", false);
+  const securityImage = input("security-image");
+  const security = bool("security-scan", false) || Boolean(securityImage);
   const syftCommand = security ? await ensureAnchoreTool("syft", input("syft-version") ?? "latest") : undefined;
   const grypeCommand = security ? await ensureAnchoreTool("grype", input("grype-version") ?? "latest") : undefined;
 
@@ -73,6 +74,8 @@ async function main() {
     securityExcludes: list<string>("security-exclude"),
     syftCommand,
     grypeCommand,
+    securityImage,
+    notesFrom: input("notes-from"),
     cwd: input("working-directory") ?? process.cwd(),
     to: input("to"),
     from,
@@ -139,6 +142,7 @@ async function main() {
   core.setOutput("markdown-path", byName("RELEASE_NOTES.md"));
   core.setOutput("security-json-path", byName("security.json"));
   core.setOutput("sbom-path", byName("sbom.cdx.json"));
+  core.setOutput("image-sbom-path", byName("sbom-image.cdx.json"));
   if (result.security) {
     const sum = (c: Record<string, number>) => String(Object.values(c).reduce((a, b) => a + b, 0));
     const s = result.security.summary;

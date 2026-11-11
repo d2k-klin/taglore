@@ -82,6 +82,12 @@ inputs:
     description: "none | critical | high | medium | low. Fail before publishing when the release introduces vulnerabilities at or above this severity (for a first release: any open ones)."
     required: false
     default: none
+  security-image:
+    description: Also scan the built container image (OS packages and everything installed at build time). Template with {version} (the tag) or {semver} (tag without "v"), e.g. ghcr.io/acme/app:{version}. The previous release's image is resolved from the same template. Run this step after the image is built or pushed. Implies security-scan.
+    required: false
+  notes-from:
+    description: Reuse the release.json written by an earlier Taglore step instead of generating notes again (no second AI call). Use it for a second step after docker build that adds the image scan.
+    required: false
   security-max-items:
     description: Max vulnerability rows in the Markdown table. The rest stay in security.json.
     required: false
@@ -90,7 +96,7 @@ inputs:
     description: Extra Syft exclude patterns, comma or newline separated, e.g. ./test/**,./examples/**
     required: false
   syft-version:
-    description: Syft version to install when syft is not on PATH (e.g. v1.18.1). Pin it for reproducible SBOMs.
+    description: Syft version to install when syft is not on PATH (e.g. v1.57.1). Pin it for reproducible SBOMs.
     required: false
     default: latest
   grype-version:
@@ -182,6 +188,8 @@ outputs:
     description: Path of security.json when output-dir is set.
   sbom-path:
     description: Path of sbom.cdx.json when output-dir is set.
+  image-sbom-path:
+    description: Path of sbom-image.cdx.json when output-dir and security-image are set.
 
 runs:
   using: node24
