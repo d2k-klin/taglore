@@ -55,7 +55,9 @@ jobs:
           test "${{ steps.notes.outputs.announce }}" = "true"
           test -f "$RUNNER_TEMP/demo/out/latest.json"
           test "${{ steps.notes.outputs.unverified-statements }}" = "0"
-          test "$(jq '.releases | length' "$RUNNER_TEMP/demo/out/history.json")" = "1"
+          # The demo tags (v1.0.x) also exist as real releases of this repository, so earlier
+          # entries may be picked up from GitHub. Only the newest entry is asserted.
+          test "$(jq -r '.releases[0].version' "$RUNNER_TEMP/demo/out/history.json")" = "v1.1.0"
           test "$(jq -r '.highlights[0].commits | length' "$RUNNER_TEMP/demo/out/release.json")" = "1"
           test -s "$RUNNER_TEMP/demo/review/preview.html"
           test ! -e "$RUNNER_TEMP/demo/out/preview.html"
