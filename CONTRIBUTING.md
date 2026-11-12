@@ -29,4 +29,4 @@ node packages/taglore/dist/cli.js generate --to v1.2.0 --provider none --dry-run
 
 1. Bump the version in `packages/taglore/package.json`, `packages/taglore/src/meta.ts` and `packages/whats-new/package.json`, run `npm run build`, merge.
 2. Merging the version bump to `main` creates the `vX.Y.Z` tag, writes the notes with Taglore itself and moves the `vX` major tag. Pushing a `vX.Y.Z` tag yourself does the same.
-3. The same workflow publishes `taglore` and `@taglore/whats-new` to npm when the `NPM_TOKEN` secret is set (an npm automation token with publish rights for `taglore` and the `@taglore` scope). To publish a version released earlier, run the Release workflow manually.
+3. The same workflow attaches the CLI and the components to the release as tarballs (`taglore.tgz`, `taglore-whats-new.tgz`), which is how people install them. If an `NPM_TOKEN` secret exists, it also publishes both packages to npm.

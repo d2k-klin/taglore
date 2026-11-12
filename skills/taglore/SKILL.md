@@ -91,16 +91,16 @@ Target URL in all cases: `GET /release-notes/latest.json`. Copy the matching exa
 
 **b) Show the dialog.** Pick by frontend:
 
-- **Any HTML frontend** (server templates, Vue, Angular, Svelte, plain HTML): add once to the main layout/template:
+- **Any HTML frontend** (server templates, Vue, Angular, Svelte, plain HTML): set `web-components: true` on the Taglore step so `taglore-whats-new.js` is written to `output-dir` and served by the app itself, then add once to the main layout/template:
 
   ```html
-  <script type="module" src="https://cdn.jsdelivr.net/npm/@taglore/whats-new@1/dist/element.js"></script>
+  <script type="module" src="/release-notes/taglore-whats-new.js"></script>
   <taglore-whats-new src="/release-notes/latest.json" storage-key="<app-name>:whats-new"></taglore-whats-new>
   ```
 
   Attributes: `show-on-first-visit`, `compact`, `unstyled`, `label-heading`, `label-close` etc. `element.show()` reopens it from a menu item.
 
-- **React / Next.js:** `npm install @taglore/whats-new`, then render once in the root layout (client component):
+- **React / Next.js:** `npm install https://github.com/d2k-klin/taglore/releases/latest/download/taglore-whats-new.tgz`, then render once in the root layout (client component):
 
   ```tsx
   "use client";
@@ -119,8 +119,8 @@ Behaviour to explain to the user: each major/minor announcement shows once per b
 
 ## 5. Verify
 
-- Preview locally without publishing: `npx taglore generate --to <existing-tag> --provider none --dry-run`
-- With Copilot locally (needs `npm i -g @github/copilot` and a logged-in Copilot CLI or `COPILOT_GITHUB_TOKEN`): `npx taglore generate --to <tag> --dry-run`
+- Preview locally without publishing: `npx --package=https://github.com/d2k-klin/taglore/releases/latest/download/taglore.tgz taglore generate --to <existing-tag> --provider none --dry-run`
+- With Copilot locally (needs `npm i -g @github/copilot` and a logged-in Copilot CLI or `COPILOT_GITHUB_TOKEN`): `npx --package=https://github.com/d2k-klin/taglore/releases/latest/download/taglore.tgz taglore generate --to <tag> --dry-run`
 - After the first tag push, check the run summary, the GitHub Release body, and that the release has a `taglore.json` asset (patch releases need it on the previous minor).
 
 ## Version rules (for answering questions)
@@ -144,6 +144,10 @@ With `security-scan: true`, Taglore scans the released tag and the base version 
 - If the app ships as a container, add the image scan: keep the first Taglore step before `docker build` (notes into the image, `publish-github-release: false`), add a second step after the build with `notes-from: <output-dir>/release.json` and `security-image: <registry>/<app>:{version}` (or `{semver}` when image tags have no "v"). The second step publishes the release. The image must exist locally or be pullable; the previous release's image comes from the same template.
 - False positives or accepted risks go in a `.grype.yaml` at the repository root.
 - `security-fail-on` runs before anything is published, so a tripped gate leaves no release behind.
+
+## Installing without npm
+
+Taglore is not on the npm registry. Use the Action for CI. The web components come from `web-components: true` (or jsDelivr: `https://cdn.jsdelivr.net/gh/d2k-klin/taglore@1/dist/whats-new.js`). The React package and the CLI install from the release tarballs: `https://github.com/d2k-klin/taglore/releases/latest/download/taglore-whats-new.tgz` and `https://github.com/d2k-klin/taglore/releases/latest/download/taglore.tgz`. Never tell the user to run `npm install taglore` or `npm install @taglore/whats-new`.
 
 ## Troubleshooting
 

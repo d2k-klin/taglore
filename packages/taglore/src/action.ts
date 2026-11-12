@@ -140,6 +140,22 @@ async function main() {
   core.setOutput("release-url", result.releaseUrl ?? "");
   core.setOutput("markdown", result.markdown);
   core.setOutput("json", JSON.stringify(result.notes));
+  // Optional: ship the web components with the notes, so the app serves them itself (no CDN, no npm).
+  const outDir = input("output-dir");
+  if (bool("web-components", false) && outDir && !bool("dry-run", false)) {
+    const { copyFile, mkdir } = await import("node:fs/promises");
+    const { resolve, join } = await import("node:path");
+    const { fileURLToPath } = await import("node:url");
+    const dir = resolve(input("working-directory") ?? process.cwd(), outDir);
+    await mkdir(dir, { recursive: true });
+    const target = join(dir, "taglore-whats-new.js");
+    await copyFile(fileURLToPath(new URL("./whats-new.js", import.meta.url)), target);
+    core.info(`Wrote the web components to ${target}`);
+    core.setOutput("web-components-path", target);
+  } else if (bool("web-components", false) && !outDir) {
+    core.warning("web-components needs output-dir; nothing was written.");
+  }
+
   const byName = (n: string) => result.writtenFiles.find((p) => p.endsWith(`/${n}`)) ?? "";
   core.setOutput("latest-json-path", byName("latest.json"));
   core.setOutput("release-json-path", byName("release.json"));

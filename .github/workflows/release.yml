@@ -4,8 +4,8 @@
 #   1. Bump "version" in packages/taglore/package.json and merge to main: the tag vX.Y.Z is created here.
 #   2. Push a vX.Y.Z tag yourself.
 # Either way, the notes are written by Taglore and the vX major tag is moved for `uses: d2k-klin/taglore@vX`.
-# The npm job then publishes `taglore` and `@taglore/whats-new` (needs the NPM_TOKEN secret).
-# Run the workflow manually to publish a version that was released before the secret existed.
+# The CLI and the components are attached to every release as installable tarballs (no npm account needed).
+# If an NPM_TOKEN secret exists, both packages are also published to npm.
 name: Release
 
 on:
@@ -90,36 +90,38 @@ jobs:
             echo "::warning::Could not move $MAJOR to $TAG (workflow files changed and the token lacks the workflows permission). Add a RELEASE_TOKEN secret, or run: git tag -f $MAJOR $TAG && git push -f origin $MAJOR"
           fi
 
-  npm:
-    # Publishes both packages at the version in package.json. Versions already on npm are skipped.
-    needs: release
-    if: ${{ !cancelled() && needs.release.result == 'success' }}
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      id-token: write   # npm provenance
-    env:
-      NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-    steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 24
-          registry-url: https://registry.npmjs.org
-      - name: Publish
+      - name: Attach installable packages to the release
+        if: steps.version.outputs.create != 'skip'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.version.outputs.tag }}
         run: |
-          if [ -z "$NODE_AUTH_TOKEN" ]; then
-            echo "::warning::NPM_TOKEN secret is not set, so nothing was published to npm. Add it, then run this workflow manually."
-            exit 0
-          fi
           npm ci
           npm run build -w taglore -w @taglore/whats-new
+          mkdir -p "$RUNNER_TEMP/pkg"
+          npm pack -w taglore -w @taglore/whats-new --pack-destination "$RUNNER_TEMP/pkg"
+          cd "$RUNNER_TEMP/pkg"
+          # Version-less copies give stable URLs: releases/latest/download/taglore.tgz
+          cp taglore-[0-9]*.tgz taglore.tgz
+          cp taglore-whats-new-[0-9]*.tgz taglore-whats-new.tgz
+          gh release upload "$TAG" ./*.tgz --clobber --repo "$GITHUB_REPOSITORY"
+
+      - name: Publish to npm (only when an NPM_TOKEN secret exists)
+        if: steps.version.outputs.create != 'skip'
+        env:
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          if [ -z "$NPM_TOKEN" ]; then
+            echo "No NPM_TOKEN secret; skipping npm. The release tarballs are the supported install path."
+            exit 0
+          fi
+          echo "//registry.npmjs.org/:_authToken=${NPM_TOKEN}" > "$RUNNER_TEMP/npmrc"
           for dir in packages/taglore packages/whats-new; do
             name=$(node -p "require('./$dir/package.json').name")
             version=$(node -p "require('./$dir/package.json').version")
             if [ -n "$(npm view "$name@$version" version 2>/dev/null)" ]; then
               echo "$name@$version is already on npm."
             else
-              npm publish "./$dir" --access public --provenance
+              npm publish "./$dir" --access public --userconfig "$RUNNER_TEMP/npmrc"
             fi
           done

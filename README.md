@@ -86,14 +86,25 @@ The container then serves `GET /release-notes/latest.json` (or your code reads i
 
 ### What's New dialog in the frontend
 
+Add `web-components: true` and Taglore writes `taglore-whats-new.js` next to the JSON: both web components in one file with no dependencies, served by your own app. No CDN, no npm.
+
+```yaml
+      - uses: d2k-klin/taglore@v1
+        with:
+          output-dir: release-notes
+          web-components: true
+```
+
 Any frontend (plain HTML, server templates, Vue, Angular, Svelte):
 
 ```html
-<script type="module" src="https://cdn.jsdelivr.net/npm/@taglore/whats-new@1/dist/element.js"></script>
+<script type="module" src="/release-notes/taglore-whats-new.js"></script>
 <taglore-whats-new src="/release-notes/latest.json" storage-key="myapp:whats-new"></taglore-whats-new>
 ```
 
-React / Next.js:
+Prefer a CDN? The same file is on jsDelivr, straight from this repository: `https://cdn.jsdelivr.net/gh/d2k-klin/taglore@1/dist/whats-new.js`.
+
+React / Next.js (install from the release, no npm registry needed: `npm install https://github.com/d2k-klin/taglore/releases/latest/download/taglore-whats-new.tgz`):
 
 ```tsx
 "use client";
@@ -157,7 +168,7 @@ Evidence shows that a statement points at real changes in this release. It does 
 Every run also writes `history.json`: this release followed by the earlier ones, newest first (`history-limit`, default 20). Earlier releases are read from your GitHub Releases, so there is still no database. Serve it next to `latest.json` and show it with one tag:
 
 ```html
-<script type="module" src="https://cdn.jsdelivr.net/npm/@taglore/whats-new@1/dist/element.js"></script>
+<script type="module" src="/release-notes/taglore-whats-new.js"></script>
 <taglore-changelog src="/release-notes/history.json"></taglore-changelog>
 ```
 
@@ -287,6 +298,7 @@ More in [examples/workflows](examples/workflows).
 | `release-draft` | `false` | Create new releases as drafts |
 | `include-commits` | `true` | Collapsible commit list in the Markdown |
 | `output-dir` | | Write `latest.json`, `release.json`, `RELEASE_NOTES.md` here |
+| `web-components` | `false` | Also write `taglore-whats-new.js` (both web components, one file) to `output-dir` |
 | `upload-artifact` | `false` | `true` or an artifact name |
 | `s3-uri` | | `s3://bucket/prefix/` |
 | `s3-region` | AWS env | Region for S3 |
@@ -307,14 +319,14 @@ More in [examples/workflows](examples/workflows).
 
 ## CLI
 
-Same engine, for local previews or other CI systems:
+Same engine, for local previews or other CI systems. The CLI is attached to every release as a tarball, so `npx` runs it straight from GitHub (pin a version with `releases/download/v1.2.1/taglore-1.2.1.tgz`; dependencies still come from the npm registry):
 
 ```bash
-npx taglore generate --to v1.9.0 --dry-run                 # print the notes
-npx taglore generate --to v1.9.0 --dry-run --preview review.html   # review page with evidence
-npx taglore generate --from v1.7.0 --to v1.9.0 --out ./release-notes
-npx taglore generate --github --repo owner/app              # publish (needs GITHUB_TOKEN)
-npx taglore --help
+npx --package=https://github.com/d2k-klin/taglore/releases/latest/download/taglore.tgz taglore generate --to v1.9.0 --dry-run                 # print the notes
+npx --package=https://github.com/d2k-klin/taglore/releases/latest/download/taglore.tgz taglore generate --to v1.9.0 --dry-run --preview review.html   # review page with evidence
+npx --package=https://github.com/d2k-klin/taglore/releases/latest/download/taglore.tgz taglore generate --from v1.7.0 --to v1.9.0 --out ./release-notes
+npx --package=https://github.com/d2k-klin/taglore/releases/latest/download/taglore.tgz taglore generate --github --repo owner/app              # publish (needs GITHUB_TOKEN)
+npx --package=https://github.com/d2k-klin/taglore/releases/latest/download/taglore.tgz taglore --help
 ```
 
 ## Files and format
@@ -323,6 +335,7 @@ npx taglore --help
 |---|---|
 | `latest.json` | The announcement apps should show: this release if it announces, otherwise the last one that did |
 | `history.json` | Every release, newest first, for a changelog page |
+| `taglore-whats-new.js` | With `web-components`: the What's New and changelog web components |
 | `release.json` | Structured notes for this exact release (also attached to the GitHub Release as `taglore.json`) |
 | `RELEASE_NOTES.md` | Markdown, same as the GitHub Release body |
 | `security.json` | With `security-scan`: introduced, fixed and open vulnerabilities, dependency and license changes |

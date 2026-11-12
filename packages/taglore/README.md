@@ -3,9 +3,9 @@
 Core and CLI of [Taglore](https://github.com/d2k-klin/taglore): AI-written release notes from git tags.
 
 ```bash
-npx taglore generate --to v1.9.0 --dry-run
-npx taglore generate --from v1.7.0 --to v1.9.0 --out ./release-notes
-npx taglore --help
+npx --package=https://github.com/d2k-klin/taglore/releases/latest/download/taglore.tgz taglore generate --to v1.9.0 --dry-run
+npx --package=https://github.com/d2k-klin/taglore/releases/latest/download/taglore.tgz taglore generate --from v1.7.0 --to v1.9.0 --out ./release-notes
+npx --package=https://github.com/d2k-klin/taglore/releases/latest/download/taglore.tgz taglore --help
 ```
 
 Programmatic use:

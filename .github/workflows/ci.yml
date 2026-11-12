@@ -50,6 +50,7 @@ jobs:
           publish-github-release: false
           output-dir: out
           preview-file: review/preview.html
+          web-components: true
       - run: |
           test "${{ steps.notes.outputs.previous-version }}" = "v1.0.0"
           test "${{ steps.notes.outputs.announce }}" = "true"
@@ -61,6 +62,7 @@ jobs:
           test "$(jq -r '.highlights[0].commits | length' "$RUNNER_TEMP/demo/out/release.json")" = "1"
           test -s "$RUNNER_TEMP/demo/review/preview.html"
           test ! -e "$RUNNER_TEMP/demo/out/preview.html"
+          grep -q "taglore-changelog" "$RUNNER_TEMP/demo/out/taglore-whats-new.js"
 
   security-smoke-test:
     # Real Syft + Grype against a demo repo: lodash goes from 4.17.15 (known advisories) to 4.17.21.

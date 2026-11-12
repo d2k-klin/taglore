@@ -1,7 +1,7 @@
 # Next.js integration
 
 1. In your tag workflow, run Taglore with `output-dir: public/release-notes` before `docker build` ([docker.yml](../../workflows/docker.yml)).
-2. `npm install @taglore/whats-new`
+2. `npm install https://github.com/d2k-klin/taglore/releases/latest/download/taglore-whats-new.tgz`
 3. Add [`whats-new.tsx`](whats-new.tsx) to `app/` and render it in [`layout.tsx`](layout.tsx).
 4. Make sure the Dockerfile copies `public/` into the runtime image ([Dockerfile](Dockerfile)) and `.dockerignore` doesn't exclude `public/release-notes`.
 

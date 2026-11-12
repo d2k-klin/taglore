@@ -7,7 +7,7 @@ import type { NoteItem, ReleaseNotes } from "./types.js";
  * <taglore-whats-new> — framework-free What's New dialog for any web frontend
  * (Vue, Angular, Svelte, Django/Rails/Laravel templates, plain HTML).
  *
- *   <script type="module" src="https://cdn.jsdelivr.net/npm/@taglore/whats-new@1/dist/element.js"></script>
+ *   <script type="module" src="/release-notes/taglore-whats-new.js"></script>
  *   <taglore-whats-new src="/release-notes/latest.json" storage-key="myapp:whats-new"></taglore-whats-new>
  *
  * Attributes: src, storage-key, show-on-first-visit, compact, unstyled,

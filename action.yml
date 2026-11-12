@@ -136,6 +136,10 @@ inputs:
   output-dir:
     description: Write latest.json, release.json and RELEASE_NOTES.md to this folder, inside the Docker build context, e.g. release-notes (copy it in your Dockerfile) or public/release-notes (Next.js).
     required: false
+  web-components:
+    description: Also write taglore-whats-new.js (the <taglore-whats-new> and <taglore-changelog> web components, one file, no dependencies) to output-dir, so your app serves them itself. No CDN and no npm needed.
+    required: false
+    default: "false"
   upload-artifact:
     description: Upload the files as a workflow artifact. "true" uses the name taglore-release-notes, any other value is the artifact name.
     required: false
@@ -188,6 +192,8 @@ outputs:
     description: Path of release.json when output-dir is set.
   markdown-path:
     description: Path of RELEASE_NOTES.md when output-dir is set.
+  web-components-path:
+    description: Path of taglore-whats-new.js when web-components and output-dir are set.
   artifact-name:
     description: Name of the uploaded artifact.
   history-json-path:
