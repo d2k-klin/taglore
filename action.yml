@@ -43,8 +43,12 @@ inputs:
   copilot-args:
     description: Extra Copilot CLI arguments, comma or newline separated. Taglore allows no tools by default.
     required: false
+  patch-notes:
+    description: "How patch releases are written. commits = from commit messages; ai = AI notes, the app keeps the last major/minor announcement; announce = AI notes and a What's New of their own."
+    required: false
+    default: ai
   ai-for:
-    description: Release types that get AI-written notes. Others get notes from commit messages.
+    description: Release types that get AI-written notes. Others get notes from commit messages. Patches follow patch-notes.
     required: false
     default: major,minor
   on-ai-failure:
@@ -158,7 +162,7 @@ inputs:
     description: AWS region for S3. Default is the region from the AWS environment.
     required: false
   announce-on:
-    description: Release types that create a new in-app announcement (latest.json). Other releases reuse the last announced one.
+    description: Release types that create a new in-app announcement (latest.json). Other releases reuse the last announced one. Patches follow patch-notes.
     required: false
     default: major,minor
   baseline-file:

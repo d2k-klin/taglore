@@ -1,4 +1,4 @@
-export { runTaglore, type TagloreOptions, type TagloreResult, type Logger } from "./run.js";
+export { runTaglore, type PatchNotesMode, type TagloreOptions, type TagloreResult, type Logger } from "./run.js";
 export * from "./schema.js";
 export { parseSemver, compareSemver, resolveBase, announcementBase, releaseTypeOf, type CompareMode, type SemVer } from "./version.js";
 export { fallbackNotes } from "./fallback.js";

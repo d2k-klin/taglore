@@ -10,9 +10,12 @@ import type { NoteItem, ReleaseNotes } from "./types.js";
  *   <script type="module" src="/release-notes/taglore-whats-new.js"></script>
  *   <taglore-whats-new src="/release-notes/latest.json" storage-key="myapp:whats-new"></taglore-whats-new>
  *
- * Attributes: src, storage-key, show-on-first-visit, compact, unstyled,
+ * Attributes: src, storage-key, show-on-first-visit, no-auto-open, compact, unstyled,
  * label-heading, label-highlights, label-improvements, label-fixes, label-breaking, label-close.
- * Methods: show(), dismiss(). Events: "taglore:open", "taglore:dismiss" (detail = notes).
+ * With no-auto-open the dialog never opens by itself: the element gets an `unseen` attribute
+ * and fires "taglore:unseen" instead, so the app can show a badge and call show() from a menu.
+ * Methods: show(), dismiss(). Property: unseen.
+ * Events: "taglore:unseen", "taglore:open", "taglore:dismiss" (detail = notes).
  * All text is set with textContent, never as HTML.
  */
 export class TagloreWhatsNewElement extends HTMLElement {
@@ -53,10 +56,19 @@ export class TagloreWhatsNewElement extends HTMLElement {
       if (!notes) return;
       this.notes = notes;
       this.render();
-      if (shouldShow(notes, this.storageKey, this.hasAttribute("show-on-first-visit"))) this.show();
+      if (shouldShow(notes, this.storageKey, this.hasAttribute("show-on-first-visit"))) {
+        this.setAttribute("unseen", "");
+        this.dispatchEvent(new CustomEvent("taglore:unseen", { detail: notes, bubbles: true }));
+        if (!this.hasAttribute("no-auto-open")) this.show();
+      }
     } catch (e) {
       if (!this.ctrl.signal.aborted) console.warn("[taglore-whats-new]", e);
     }
+  }
+
+  /** True when there is an announcement the user has not dismissed yet. */
+  get unseen(): boolean {
+    return this.hasAttribute("unseen");
   }
 
   /** Opens the current announcement (e.g. from a "What's new" menu item). */
@@ -77,6 +89,7 @@ export class TagloreWhatsNewElement extends HTMLElement {
   dismiss() {
     if (!this.notes) return;
     writeSeen(this.storageKey, this.notes.version);
+    this.removeAttribute("unseen");
     if (this.dialog?.open) this.dialog.close();
     this.dispatchEvent(new CustomEvent("taglore:dismiss", { detail: this.notes, bubbles: true }));
   }

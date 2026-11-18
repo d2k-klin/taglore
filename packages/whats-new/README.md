@@ -18,11 +18,26 @@ The file comes from the Taglore action (`web-components: true` writes it to `out
 | `src` | `/release-notes/latest.json` | Where the notes are served |
 | `storage-key` | `taglore:whats-new:last-seen` | localStorage key for the acknowledged version |
 | `show-on-first-visit` | off | Show the current announcement to brand-new visitors |
+| `no-auto-open` | off | Never pop up. The element gets an `unseen` attribute and fires `taglore:unseen`; open it with `show()` |
 | `compact` | off | Summary and highlights only |
 | `unstyled` | off | Don't inject the default CSS |
 | `label-heading`, `label-highlights`, `label-improvements`, `label-fixes`, `label-breaking`, `label-close` | English | Text labels |
 
-Methods `show()` and `dismiss()`; events `taglore:open` and `taglore:dismiss` (detail = the notes).
+Methods `show()` and `dismiss()`, property `unseen`; events `taglore:unseen`, `taglore:open` and `taglore:dismiss` (detail = the notes).
+
+The popup is always optional. With `no-auto-open`, show a dot on your own menu item and open the dialog from there:
+
+```html
+<taglore-whats-new id="wn" no-auto-open></taglore-whats-new>
+<button id="wn-btn">What's new <span class="dot" hidden></span></button>
+<script type="module">
+  const wn = document.getElementById("wn");
+  const dot = document.querySelector("#wn-btn .dot");
+  wn.addEventListener("taglore:unseen", () => (dot.hidden = false));
+  wn.addEventListener("taglore:dismiss", () => (dot.hidden = true));
+  document.getElementById("wn-btn").onclick = () => wn.show();
+</script>
+```
 
 ## React / Next.js
 
@@ -47,12 +62,21 @@ export default function AppWhatsNew() {
 | `storageKey` | `taglore:whats-new:last-seen` | localStorage key for the acknowledged version |
 | `showOnFirstVisit` | `false` | Show the current announcement to brand-new visitors |
 | `enabled` | `true` | Turn off, e.g. for logged-out users |
+| `autoOpen` | `true` | `false` never pops up: use `unseen` for a badge and `show()` from a menu |
 | `compact` | `false` | Summary and highlights only |
 | `labels` | English | `heading`, `highlights`, `improvements`, `fixes`, `breaking`, `close` |
 | `onDismiss` | | Callback after the user closes the dialog |
-| `children` | | Render prop `({ notes, open, dismiss, show }) => ...` for your own UI |
+| `children` | | Render prop `({ notes, open, unseen, dismiss, show }) => ...` for your own UI |
 
-`useWhatsNew(options)` exposes the same state as a hook. React is an optional peer dependency; the web component doesn't need it.
+`useWhatsNew(options)` exposes the same state as a hook. Without a popup:
+
+```tsx
+const wn = useWhatsNew({ autoOpen: false, storageKey: "myapp:whats-new" });
+// <MenuItem onClick={wn.show}>What's new {wn.unseen && <Dot />}</MenuItem>
+// and render <WhatsNew autoOpen={false} ... /> or your own dialog from wn.open
+```
+
+ React is an optional peer dependency; the web component doesn't need it.
 
 Both render every field as plain text, never as HTML. Style them through the `taglore-wn*` classes and `--taglore-wn-*` custom properties.
 

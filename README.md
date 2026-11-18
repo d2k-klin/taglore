@@ -41,13 +41,21 @@ Taglore follows SemVer and treats user-facing releases differently from maintena
 |---|---|---|---|---|
 | `v2.0.0` major | last minor, `v1.9.0` | AI | yes | **new** |
 | `v1.9.0` minor | previous minor, `v1.8.0` (covers all 1.8.x patches) | AI | yes | **new** |
-| `v1.9.1` patch | previous tag, `v1.9.0` | commit messages | yes | keeps `v1.9.0`'s |
+| `v1.9.1` patch | previous tag, `v1.9.0` | AI (`patch-notes`) | yes | keeps `v1.9.0`'s (`patch-notes: announce` for its own) |
 | `v2.0.0-rc.1` | previous tag | commit messages | prerelease | none |
 | first release | root commit | AI | yes | new |
 
 Other modes: `previous-tag`, `previous-minor`, `previous-major`, or `explicit` with your own `from`/`to` (any tags, SHAs or branches). `ai-for` and `announce-on` change which release types get AI notes and announcements.
 
-**Patch releases keep the last announcement.** Every release gets a `taglore.json` asset. On a patch, Taglore downloads the announcement from the last minor's release and writes it as `latest.json`, so the image you build for `v1.9.1` still contains the `v1.9.0` What's New.
+**Patch releases** get AI notes by default, so the GitHub Release and the changelog page read as well as for a minor. `patch-notes` chooses:
+
+| `patch-notes` | Notes | `latest.json` in the image |
+|---|---|---|
+| `ai` (default) | AI | the last major/minor announcement, so nobody gets a popup for a bug fix |
+| `announce` | AI | this patch, with `announce: true`, like a minor |
+| `commits` | commit messages | the last major/minor announcement (the behaviour before v1.4.0) |
+
+Every release gets a `taglore.json` asset. On a patch that doesn't announce, Taglore downloads the announcement from the last minor's release and writes it as `latest.json`, so the image you build for `v1.9.1` still contains the `v1.9.0` What's New. If there is none (Taglore was adopted on a patch, or no token to fetch it), `latest.json` holds the patch's own notes with `announce: false`: a "What's new" menu item has content, and nobody gets a popup. `patch-notes` adds to `ai-for` and `announce-on`; a type you list there is never removed.
 
 ## GitHub Copilot setup
 
@@ -116,7 +124,7 @@ export default function AppWhatsNew() {
 }
 ```
 
-Both show each major/minor announcement once per browser; new visitors start up to date (`show-on-first-visit` / `showOnFirstVisit` to change that). For mobile, desktop or other clients: show the announcement when `announce` is `true` and `version` is newer than the one the user last saw.
+Both show each announcement once per browser; new visitors start up to date (`show-on-first-visit` / `showOnFirstVisit` to change that). The popup is always optional: with `no-auto-open` / `autoOpen={false}` the dialog never opens by itself, and the app shows a badge from `unseen` and calls `show()` from a menu item. For mobile, desktop or other clients: show the announcement when `announce` is `true` and `version` is newer than the one the user last saw.
 
 ### Review before publishing: evidence and preview
 
@@ -343,6 +351,7 @@ More in [examples/workflows](examples/workflows).
 | `model` | provider default | Model id |
 | `copilot-token` | | Fine-grained PAT with Copilot Requests (personal repos) |
 | `copilot-version` | `latest` | `@github/copilot` version to install |
+| `patch-notes` | `ai` | `commits`, `ai` or `announce`: how patch releases are written |
 | `ai-for` | `major,minor` | Release types that get AI notes |
 | `on-ai-failure` | `fallback` | `fallback` or `fail` |
 | `language` | `English` | Language of the notes |

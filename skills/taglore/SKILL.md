@@ -100,7 +100,7 @@ Target URL in all cases: `GET /release-notes/latest.json`. Copy the matching exa
   <taglore-whats-new src="/release-notes/latest.json" storage-key="<app-name>:whats-new"></taglore-whats-new>
   ```
 
-  Attributes: `show-on-first-visit`, `compact`, `unstyled`, `label-heading`, `label-close` etc. `element.show()` reopens it from a menu item.
+  Attributes: `show-on-first-visit`, `no-auto-open`, `compact`, `unstyled`, `label-heading`, `label-close` etc. `element.show()` reopens it from a menu item.
 
 - **React / Next.js:** `npm install https://github.com/d2k-klin/taglore/releases/latest/download/taglore-whats-new.tgz`, then render once in the root layout (client component):
 
@@ -117,7 +117,7 @@ Target URL in all cases: `GET /release-notes/latest.json`. Copy the matching exa
 
 - **Mobile, desktop or anything else:** fetch `latest.json`; show it when `announce` is true and `version` is newer than the version stored as last seen; store `version` when the user dismisses it. Render all fields as plain text. Generate types from `schema/release.schema.json`.
 
-Behaviour to explain to the user: each major/minor announcement shows once per browser/device; first-time users are marked up to date silently unless `show-on-first-visit` is set; patch releases never re-announce.
+Behaviour to explain to the user: each major/minor announcement shows once per browser/device; first-time users are marked up to date silently unless `show-on-first-visit` is set; patch releases don't re-announce unless `patch-notes: announce`. The popup is always optional: `no-auto-open` (web component) or `autoOpen={false}` (React) never pops up; the app reads `unseen` (attribute/property, or the hook's `unseen`, plus the `taglore:unseen` event) for a badge and calls `show()` from a menu item. Ask the user which they want.
 
 ## 5. Verify
 
@@ -128,7 +128,8 @@ Behaviour to explain to the user: each major/minor announcement shows once per b
 ## Version rules (for answering questions)
 
 - `compare: auto`: patch compares with the previous tag; minor and major compare with the previous `X.Y.0`, which covers all patches in between. First release compares from the root commit. Prereleases are never used as a base.
-- `ai-for` (default `major,minor`): which release types get AI notes; others use commit messages.
+- `patch-notes` (default `ai`): `ai` = AI notes for patches, the app keeps the last major/minor announcement; `announce` = AI notes and a What's New of their own; `commits` = commit messages (pre-1.4.0 behaviour). Adds to `ai-for`/`announce-on`, never removes.
+- `ai-for` (default `major,minor`): which release types get AI notes; others use commit messages. Patches follow `patch-notes`.
 - `announce-on` (default `major,minor`): which release types write a new `latest.json`. Other releases copy the last announced `taglore.json` from GitHub Releases (or from `baseline-file`).
 
 ## Evidence, preview and history
@@ -159,7 +160,7 @@ Taglore is not on the npm registry. Use the Action for CI. The web components co
 | "No release tag found" | Workflow not triggered by a tag; pass `to:` |
 | "is not a semver tag" | Set `tag-prefix`, or use `from`/`to` (explicit compare) |
 | Copilot 401/403, or fallback notes every time | Personal repo without `copilot-token`, PAT missing Copilot Requests, or org policy off. Check the run log warning |
-| `latest.json` missing on a patch | The previous minor release has no `taglore.json` asset (released before Taglore). Re-run Taglore for that tag once, or pass `baseline-file` |
+| A patch's `latest.json` shows the patch, not the last minor | The previous minor release has no announced `taglore.json` asset (released before Taglore), so the patch's own notes are used with `announce: false`. Re-run Taglore for that minor once, or pass `baseline-file` |
 | "Syft not found" / "Grype not found" (CLI) | Install them, or use the Action, which installs them automatically |
 | "Could not scan image" | The image for this tag isn't built/pushed yet, or the template doesn't match the tag format (`{version}` vs `{semver}`) |
 | "notes-from: … is for vX, but this release is vY" | The first step wrote notes for a different tag; both steps must use the same `to` |

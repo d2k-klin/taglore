@@ -1,5 +1,5 @@
 import * as core from "@actions/core";
-import { runTaglore } from "./run.js";
+import { type PatchNotesMode, runTaglore } from "./run.js";
 import type { ReleaseType } from "./schema.js";
 import type { CompareMode } from "./version.js";
 import type { ProviderName } from "./providers/types.js";
@@ -96,6 +96,7 @@ async function main() {
     copilotToken: copilotToken ?? githubToken,
     copilotArgs: list<string>("copilot-args"),
     aiFor: list<ReleaseType>("ai-for"),
+    patchNotes: input("patch-notes") as PatchNotesMode | undefined,
     onAiFailure: input("on-ai-failure") as "fallback" | "fail" | undefined,
     announceOn: list<ReleaseType>("announce-on"),
     excludes: list<string>("exclude"),

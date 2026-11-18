@@ -1,6 +1,6 @@
 {
   "name": "@taglore/whats-new",
-  "version": "1.3.0",
+  "version": "1.4.0",
   "description": "What's New dialog and changelog page for Taglore release notes: React components and framework-free web components for any frontend.",
   "license": "MIT",
   "homepage": "https://github.com/d2k-klin/taglore/tree/main/packages/whats-new#readme",
@@ -22,7 +22,10 @@
   ],
   "sideEffects": [
     "*.css",
-    "./dist/element.js"
+    "./dist/element.js",
+    "./dist/changelog-element.js",
+    "./src/element.ts",
+    "./src/changelog-element.ts"
   ],
   "main": "dist/index.js",
   "types": "dist/index.d.ts",

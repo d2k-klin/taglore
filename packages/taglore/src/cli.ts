@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { parseArgs } from "node:util";
-import { runTaglore } from "./run.js";
+import { type PatchNotesMode, runTaglore } from "./run.js";
 import { TAGLORE_VERSION } from "./meta.js";
 import type { ReleaseType } from "./schema.js";
 import type { CompareMode } from "./version.js";
@@ -22,6 +22,7 @@ AI
   --provider <name>       copilot | github-models | none (default: copilot)
   --model <id>            Model id passed to the provider
   --ai-for <types>        Release types that get AI notes (default: major,minor)
+  --patch-notes <m>       commits | ai | announce: how patch releases are written (default: ai)
   --on-ai-failure <m>     fallback | fail (default: fallback)
   --language <lang>       Default: English
   --tone <text>           Default: "friendly and concise"
@@ -74,6 +75,7 @@ async function main() {
       provider: { type: "string" },
       model: { type: "string" },
       "ai-for": { type: "string" },
+      "patch-notes": { type: "string" },
       "on-ai-failure": { type: "string" },
       language: { type: "string" },
       tone: { type: "string" },
@@ -120,6 +122,7 @@ async function main() {
     provider: values.provider as ProviderName | undefined,
     model: values.model,
     aiFor: list<ReleaseType>(values["ai-for"]),
+    patchNotes: values["patch-notes"] as PatchNotesMode | undefined,
     onAiFailure: values["on-ai-failure"] as "fallback" | "fail" | undefined,
     language: values.language,
     tone: values.tone,

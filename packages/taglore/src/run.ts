@@ -40,8 +40,14 @@ export interface TagloreOptions {
   copilotToken?: string;
   copilotCommand?: string;
   copilotArgs?: string[];
-  /** Which release types get AI notes. Others use commit-based notes. Default: major, minor. */
+  /** Which release types get AI notes. Others use commit-based notes. Default: major, minor (patches: see patchNotes). */
   aiFor?: ReleaseType[];
+  /**
+   * How patch releases are written. commits: from commit messages; ai: AI notes, the app keeps
+   * the last major/minor announcement; announce: AI notes and a What's New of their own.
+   * Adds to aiFor/announceOn, it never removes a type listed there. Default: ai.
+   */
+  patchNotes?: PatchNotesMode;
   onAiFailure?: "fallback" | "fail";
 
   announceOn?: ReleaseType[];
@@ -187,14 +193,22 @@ async function aiNotes(provider: AiProvider, changes: ChangeSet, o: TagloreOptio
   return { notes: parsed, model: res.model };
 }
 
+export type PatchNotesMode = "commits" | "ai" | "announce";
+
 export async function runTaglore(opts: TagloreOptions = {}): Promise<TagloreResult> {
   const o = { ...opts };
   const log = o.log ?? consoleLog;
   const cwd = o.cwd ?? process.cwd();
   const prefix = o.tagPrefix ?? "v";
   const compare = o.compare ?? "auto";
-  const announceOn = o.announceOn ?? ["major", "minor"];
-  const aiFor = o.aiFor ?? ["major", "minor"];
+  const patchNotes = o.patchNotes ?? "ai";
+  if (!["commits", "ai", "announce"].includes(patchNotes)) {
+    throw new Error(`Invalid patch-notes "${patchNotes}". Use commits, ai or announce.`);
+  }
+  const announceOn: ReleaseType[] = [...(o.announceOn ?? ["major", "minor"])];
+  const aiFor: ReleaseType[] = [...(o.aiFor ?? ["major", "minor"])];
+  if (patchNotes !== "commits" && !aiFor.includes("patch")) aiFor.push("patch");
+  if (patchNotes === "announce" && !announceOn.includes("patch")) announceOn.push("patch");
   const paths = normalizePaths(o.paths);
   const releaseBody = o.releaseBody ?? "replace";
   if (!["replace", "prepend", "append"].includes(releaseBody)) {
@@ -340,6 +354,13 @@ export async function runTaglore(opts: TagloreOptions = {}): Promise<TagloreResu
   let latest: ReleaseNotes | null = announce ? notes : null;
   if (!announce) {
     latest = await loadBaseline(o, current, tags, prefix, releases, log);
+    // Nothing earlier to show (Taglore was adopted on a patch, or no token to fetch it):
+    // ship this release's notes, so the app's "What's new" menu still has content.
+    // announce stays false, so nobody gets a popup for it.
+    if (!latest && releaseType !== "prerelease") {
+      log.info("latest.json holds this release's own notes (announce: false, no popup).");
+      latest = notes;
+    }
   }
 
   // 5. Render
@@ -458,11 +479,11 @@ async function loadBaseline(
   // Candidates: earlier X.Y.0 releases, newest first. The first one that was announced wins.
   const candidates = current ? announcementCandidates(current, tags, prefix) : [];
   if (!candidates.length) {
-    log.warn("No earlier major/minor release found; latest.json will not be written.");
+    log.warn("No earlier major/minor release found to reuse as the announcement.");
     return null;
   }
   if (!releases) {
-    log.warn(`Cannot fetch the ${candidates[0]!.raw} announcement without a GitHub token; latest.json will not be written. Use baseline-file to provide it.`);
+    log.warn(`Cannot fetch the ${candidates[0]!.raw} announcement without a GitHub token. Use baseline-file to provide it.`);
     return null;
   }
   for (const c of candidates.slice(0, 10)) {
@@ -474,7 +495,7 @@ async function loadBaseline(
       return parsed.data;
     }
   }
-  log.warn(`No earlier release has an announced ${RELEASE_ASSET_NAME} asset; latest.json will not be written.`);
+  log.warn(`No earlier release has an announced ${RELEASE_ASSET_NAME} asset to reuse.`);
   return null;
 }
 

@@ -62,15 +62,63 @@ describe("runTaglore end to end", () => {
     expect(readFileSync(join(out, "RELEASE_NOTES.md"), "utf8")).toContain("Dark mode is here");
   });
 
-  it("patch release: commit-based notes, no AI, reuses baseline announcement", async () => {
+  it("patch release with patch-notes=commits: commit-based notes, reuses baseline announcement", async () => {
     const out = join(repo, "out-patch");
     const baseline = join(repo, "out-minor", "release.json");
-    const r = await runTaglore({ cwd: repo, to: "v1.1.1", copilotCommand: "/nonexistent", publishGithubRelease: false, outputDir: out, baselineFile: baseline, log: silent });
+    const r = await runTaglore({ cwd: repo, to: "v1.1.1", patchNotes: "commits", copilotCommand: fakeCopilot, publishGithubRelease: false, outputDir: out, baselineFile: baseline, log: silent });
     expect(r.previousVersion).toBe("v1.1.0");
     expect(r.announce).toBe(false);
     expect(r.provider).toBe("fallback");
     expect(r.notes.fixes.map((f) => f.title)).toEqual(["Typo in settings"]);
     expect(JSON.parse(readFileSync(join(out, "latest.json"), "utf8")).version).toBe("v1.1.0");
+  });
+
+  it("patch release by default: AI notes, the app keeps the last announcement", async () => {
+    const out = join(repo, "out-patch-ai");
+    const baseline = join(repo, "out-minor", "release.json");
+    const r = await runTaglore({ cwd: repo, to: "v1.1.1", copilotCommand: fakeCopilot, publishGithubRelease: false, outputDir: out, baselineFile: baseline, log: silent });
+    expect(r.provider).toBe("copilot");
+    expect(r.announce).toBe(false);
+    expect(r.notes.title).toBe("Dark mode is here");
+    expect(JSON.parse(readFileSync(join(out, "latest.json"), "utf8")).version).toBe("v1.1.0");
+  });
+
+  it("patch-notes=announce gives the patch its own announcement", async () => {
+    const out = join(repo, "out-patch-announce");
+    const r = await runTaglore({ cwd: repo, to: "v1.1.1", patchNotes: "announce", copilotCommand: fakeCopilot, publishGithubRelease: false, outputDir: out, log: silent });
+    expect(r.provider).toBe("copilot");
+    expect(r.announce).toBe(true);
+    const latest = JSON.parse(readFileSync(join(out, "latest.json"), "utf8"));
+    expect(latest.version).toBe("v1.1.1");
+    expect(latest.announce).toBe(true);
+  });
+
+  it("patch-notes never removes a type listed in ai-for or announce-on", async () => {
+    const r = await runTaglore({ cwd: repo, to: "v1.1.1", patchNotes: "commits", aiFor: ["major", "minor", "patch"], announceOn: ["major", "minor", "patch"], copilotCommand: fakeCopilot, publishGithubRelease: false, dryRun: true, log: silent });
+    expect(r.provider).toBe("copilot");
+    expect(r.announce).toBe(true);
+  });
+
+  it("a patch with no earlier announcement ships its own notes without a popup", async () => {
+    const out = join(repo, "out-patch-first");
+    // No token and no repository: nothing earlier can be fetched (also when CI sets these).
+    const saved = { t: process.env.GITHUB_TOKEN, r: process.env.GITHUB_REPOSITORY };
+    delete process.env.GITHUB_TOKEN;
+    delete process.env.GITHUB_REPOSITORY;
+    const r = await runTaglore({ cwd: repo, to: "v1.1.1", copilotCommand: fakeCopilot, publishGithubRelease: false, outputDir: out, log: silent }).finally(() => {
+      if (saved.t !== undefined) process.env.GITHUB_TOKEN = saved.t;
+      if (saved.r !== undefined) process.env.GITHUB_REPOSITORY = saved.r;
+    });
+    expect(r.announce).toBe(false);
+    const latest = JSON.parse(readFileSync(join(out, "latest.json"), "utf8"));
+    expect(latest.version).toBe("v1.1.1");
+    expect(latest.announce).toBe(false);
+  });
+
+  it("rejects an unknown patch-notes value", async () => {
+    await expect(
+      runTaglore({ cwd: repo, to: "v1.1.1", patchNotes: "always" as never, provider: "none", publishGithubRelease: false, dryRun: true, log: silent }),
+    ).rejects.toThrow(/Invalid patch-notes/);
   });
 
   it("falls back when the AI fails, or throws with on-ai-failure=fail", async () => {
