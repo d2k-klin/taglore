@@ -271,7 +271,12 @@ export async function runTaglore(opts: TagloreOptions = {}): Promise<TagloreResu
 
   // 2. Changes
   const provider = makeProvider(o);
-  const maxDiffKb = o.maxDiffKb ?? (o.provider === "github-models" ? 20 : 100);
+  // Copilot CLI models have 128k+ tokens of context: 300 KB (~75-90k tokens) leaves room for
+  // instructions and the answer. GitHub Models' free tier caps a request at 8k input tokens.
+  const maxDiffKb = o.maxDiffKb ?? (o.provider === "github-models" ? 20 : 300);
+  if (!Number.isFinite(maxDiffKb) || maxDiffKb < 1 || maxDiffKb > 4096) {
+    throw new Error(`Invalid max-diff-kb "${o.maxDiffKb}". Use a size in KB from 1 to 4096.`);
+  }
   const changes = await collectChanges({
     from,
     to,

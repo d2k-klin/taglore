@@ -167,5 +167,6 @@ Taglore is not on the npm registry. Use the Action for CI. The web components co
 | "notes-from: … is for vX, but this release is vY" | The first step wrote notes for a different tag; both steps must use the same `to` |
 | Security gate failed | The error lists the findings; upgrade the dependency, or record an accepted risk in `.grype.yaml` |
 | GitHub Models 413 or token limit | Lower `max-diff-kb` (default 20 for github-models); it caps commits, file list and diff together |
+| Notes on a big release miss changes ("remaining diff truncated" in the log) | Raise `max-diff-kb` (default 300 for Copilot, about 75-90k tokens; up to ~400 fits any 128k-token model, more with a 1M-context `model`, max 4096) |
 | Statements removed or flagged as unverified | The model cited no real commit for them; check the run summary, improve commit messages, or use `evidence: warn` |
 | Notes mention internal work | Add guidance in `instructions`, or `exclude` the paths |

@@ -54,7 +54,7 @@ const JSON_SHAPE = `{
 export function buildPrompt(changes: ChangeSet, o: PromptOptions): string {
   // One budget for everything the model reads about the change, so a long commit
   // history cannot push the prompt far past the limit.
-  const budget = o.maxContextBytes ?? 100 * 1024;
+  const budget = o.maxContextBytes ?? 300 * 1024;
   const commits = commitList(changes.commits, Math.floor(budget * 0.3));
   const files = fitBytes(changes.files.map((f) => `${f.status}\t${f.path}`).join("\n"), Math.floor(budget * 0.1), "more files not shown");
   const stat = fitBytes(changes.stat, Math.floor(budget * 0.1), "stat truncated");

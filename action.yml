@@ -81,7 +81,7 @@ inputs:
     description: Extra glob patterns kept out of the AI context, comma or newline separated. Lockfiles, build output, images and .env files are always excluded.
     required: false
   max-diff-kb:
-    description: Maximum size of the change context sent to the AI (commit list, file list and diff together). Default 100 (copilot) or 20 (github-models).
+    description: Maximum size of the change context sent to the AI (commit list, file list and diff together). Default 300 (copilot, about 75-90k tokens) or 20 (github-models, whose free tier allows 8k input tokens per request). Up to 4096 for models with a 1M-token context.
     required: false
 
   # Security (optional): SBOM + vulnerability diff, from scanners, never AI

@@ -30,7 +30,7 @@ AI
   --audience <text>       Default: "end users of the application"
   --instructions <text>   Extra guidance for the AI
   --exclude <glob>        Extra path to keep out of the AI context (repeatable)
-  --max-diff-kb <n>       Diff size sent to the AI (default: 100, github-models: 20)
+  --max-diff-kb <n>       Change context sent to the AI in KB (default: 300, github-models: 20, max 4096)
 
 Security (needs syft and grype on PATH)
   --security              Add a Security section, security.json and sbom.cdx.json

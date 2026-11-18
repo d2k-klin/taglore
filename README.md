@@ -380,7 +380,7 @@ More in [examples/workflows](examples/workflows).
 | `product-name` | repo name | Name used in the prompt |
 | `instructions` | | Extra guidance for the AI |
 | `exclude` | | Extra globs kept out of the AI context |
-| `max-diff-kb` | `100` (`20` for github-models) | Size of the whole change context sent to the AI: commit list, file list and diff together |
+| `max-diff-kb` | `300` (`20` for github-models) | Size of the whole change context sent to the AI: commit list, file list and diff together |
 | `evidence` | `warn` | `warn` reports statements no commit supports, `strict` removes them |
 | `preview-file` | | Write a review page (what users see + the commits behind it) to this path |
 | `history-limit` | `20` | Releases kept in `history.json`; `0` turns it off |

@@ -128,7 +128,13 @@ describe("runTaglore end to end", () => {
     expect(existsSync(join(out, "latest.json"))).toBe(false);
   });
 
-  it("rejects an unknown patch-notes value", async () => {
+  it("rejects an out-of-range max-diff-kb", async () => {
+    for (const bad of [0, -5, 5000, Number.NaN]) {
+      await expect(runTaglore({ cwd: repo, to: "v1.1.1", maxDiffKb: bad, provider: "none", publishGithubRelease: false, dryRun: true, log: silent })).rejects.toThrow(/Invalid max-diff-kb/);
+    }
+  });
+
+    it("rejects an unknown patch-notes value", async () => {
     await expect(
       runTaglore({ cwd: repo, to: "v1.1.1", patchNotes: "always" as never, provider: "none", publishGithubRelease: false, dryRun: true, log: silent }),
     ).rejects.toThrow(/Invalid patch-notes/);
