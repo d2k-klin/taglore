@@ -43,6 +43,10 @@ inputs:
   copilot-args:
     description: Extra Copilot CLI arguments, comma or newline separated. Taglore allows no tools by default.
     required: false
+  backfill:
+    description: "Onboarding: also write notes for up to this many earlier tags (oldest first, max 50), so the changelog has history from the first run. Tags that already have Taglore notes are skipped, so it is safe to leave on. Existing release text is kept (prepend) unless release-body is set."
+    required: false
+    default: "0"
   patch-notes:
     description: "How patch releases are written. commits = from commit messages; ai = AI notes, the app keeps the last major/minor announcement; announce = AI notes and a What's New of their own."
     required: false
@@ -133,9 +137,9 @@ inputs:
     required: false
     default: "true"
   release-body:
-    description: "For a GitHub Release that already has a body, e.g. created by Release Please. replace (default): Taglore writes title and body. prepend / append: keep the existing title and body, put Taglore's notes before / after them. Re-runs replace only Taglore's part."
+    description: "For a GitHub Release that already has a body, e.g. created by Release Please. replace (default for this release): Taglore writes title and body. prepend (default for backfilled releases) / append: keep the existing title and body, put Taglore's notes before / after them. Re-runs replace only Taglore's part."
     required: false
-    default: replace
+    default: ""
   release-draft:
     description: Create new releases as drafts (useful for reviewing major releases).
     required: false
@@ -181,6 +185,8 @@ inputs:
     required: false
 
 outputs:
+  backfilled:
+    description: Earlier tags that got notes in this run (backfill), comma-separated
   version:
     description: Release version (tag).
   previous-version:

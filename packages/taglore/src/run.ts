@@ -19,7 +19,7 @@ import { renderSecuritySection } from "./security/markdown.js";
 import { runSecurityScan } from "./security/scan.js";
 import type { FailOn, SecurityReport } from "./security/types.js";
 import { AiNotesSchema, type AiNotes, type History, type ReleaseNotes, ReleaseNotesSchema, type ReleaseType, SCHEMA_VERSION } from "./schema.js";
-import { announcementBase, type CompareMode, compareSemver, parseSemver, releaseTypeOf, resolveBase, shouldAnnounce } from "./version.js";
+import { announcementBase, type CompareMode, compareSemver, parseSemver, releaseTypeOf, resolveBase, type SemVer, shouldAnnounce, stableTags } from "./version.js";
 
 export interface Logger {
   info(msg: string): void;
@@ -116,6 +116,17 @@ export interface TagloreOptions {
   historyLimit?: number;
   /** Local history.json to continue from instead of reading earlier GitHub Releases. */
   historyFile?: string;
+  /**
+   * Onboarding: also write notes for up to this many earlier tags (oldest first), so the
+   * changelog and patch releases have history from the first run. Tags whose GitHub Release
+   * already has a taglore.json are skipped, so leaving it on costs one API call per tag.
+   * Existing release text is kept (prepend) unless releaseBody is set. Max 50. Default 0.
+   */
+  backfill?: number;
+  /** @internal Set for the per-tag runs of a backfill. */
+  backfillRun?: boolean;
+  /** @internal Extra Octokit options for the GitHub Releases client (tests). */
+  octokitOptions?: Record<string, unknown>;
 }
 
 export interface TagloreResult {
@@ -137,6 +148,8 @@ export interface TagloreResult {
   security: SecurityReport | null;
   /** Which commits stand behind each statement, and which statements have none. */
   evidence: EvidenceReport;
+  /** Earlier tags that got notes written in this run (backfill), oldest first. */
+  backfilled: string[];
   /** Review table for the evidence, as Markdown. */
   evidenceMarkdown: string;
   history: History | null;
@@ -210,7 +223,11 @@ export async function runTaglore(opts: TagloreOptions = {}): Promise<TagloreResu
   if (patchNotes !== "commits" && !aiFor.includes("patch")) aiFor.push("patch");
   if (patchNotes === "announce" && !announceOn.includes("patch")) announceOn.push("patch");
   const paths = normalizePaths(o.paths);
-  const releaseBody = o.releaseBody ?? "replace";
+  const releaseBody = o.releaseBody ?? (o.backfillRun ? "prepend" : "replace");
+  const backfill = o.backfill ?? 0;
+  if (!Number.isInteger(backfill) || backfill < 0 || backfill > 50) {
+    throw new Error(`Invalid backfill "${o.backfill}". Use a number of earlier tags from 0 to 50.`);
+  }
   if (!["replace", "prepend", "append"].includes(releaseBody)) {
     throw new Error(`Invalid release-body "${releaseBody}". Use replace, prepend or append.`);
   }
@@ -241,6 +258,16 @@ export async function runTaglore(opts: TagloreOptions = {}): Promise<TagloreResu
   }
   const announce = shouldAnnounce(releaseType, announceOn);
   log.info(`Taglore ${TAGLORE_VERSION}: ${from ?? "(first commit)"} -> ${to} [${releaseType}, announce=${announce}]`);
+
+  // 1b. Onboarding: earlier tags first, oldest first, so patches find their minor's notes.
+  const backfilledNotes: ReleaseNotes[] = [];
+  const backfilled: string[] = [];
+  if (backfill > 0) {
+    if (compare === "explicit" || !current) throw new Error("backfill needs SemVer tags; it cannot be combined with compare: explicit.");
+    const b = await runBackfill(o, current, tags, prefix, backfill, repository, log);
+    backfilledNotes.push(...b.notes);
+    backfilled.push(...b.written);
+  }
 
   // 2. Changes
   const provider = makeProvider(o);
@@ -348,7 +375,7 @@ export async function runTaglore(opts: TagloreOptions = {}): Promise<TagloreResu
   // 4. Announcement for apps (latest.json)
   const releases =
     repository && (o.githubToken ?? process.env.GITHUB_TOKEN)
-      ? new GitHubReleases((o.githubToken ?? process.env.GITHUB_TOKEN)!, parseRepo(repository), o.githubApiUrl)
+      ? new GitHubReleases((o.githubToken ?? process.env.GITHUB_TOKEN)!, parseRepo(repository), o.githubApiUrl, o.octokitOptions)
       : null;
 
   let latest: ReleaseNotes | null = announce ? notes : null;
@@ -392,7 +419,7 @@ export async function runTaglore(opts: TagloreOptions = {}): Promise<TagloreResu
   const historyLimit = o.historyLimit ?? 20;
   let history: History | null = null;
   if (historyLimit > 0 && releaseType !== "prerelease") {
-    history = await buildHistory({ notes, current, tags, prefix, limit: historyLimit, historyFile: o.historyFile, cwd, releases, log });
+    history = await buildHistory({ notes, current, tags, prefix, limit: historyLimit, historyFile: o.historyFile, cwd, releases, log, extra: backfilledNotes });
     files.push({ name: "history.json", content: JSON.stringify(history, null, 2) + "\n", contentType: "application/json", cacheControl: "public, max-age=60" });
   }
 
@@ -426,7 +453,8 @@ export async function runTaglore(opts: TagloreOptions = {}): Promise<TagloreResu
         body: markdown,
         prerelease: releaseType === "prerelease",
         draft: o.releaseDraft ?? false,
-        makeLatest: releaseType !== "prerelease",
+        // Backfilled releases are older: they must not take the "Latest" badge.
+        makeLatest: releaseType !== "prerelease" && !o.backfillRun,
         bodyMode: releaseBody,
       });
       await releases.uploadAsset(rel, RELEASE_ASSET_NAME, JSON.stringify(notes, null, 2) + "\n");
@@ -461,6 +489,7 @@ export async function runTaglore(opts: TagloreOptions = {}): Promise<TagloreResu
     evidence,
     evidenceMarkdown: renderEvidenceMarkdown(evidence),
     history,
+    backfilled,
   };
 }
 
@@ -527,4 +556,71 @@ async function loadNotesFrom(path: string, version: string, cwd: string): Promis
     throw new Error(`notes-from: ${path} is for ${parsed.data.version}, but this release is ${version}.`);
   }
   return parsed.data;
+}
+
+/**
+ * Writes notes for earlier tags, oldest first. A tag whose GitHub Release already carries a
+ * taglore.json is skipped and its notes are reused. Each tag runs the normal pipeline
+ * (compare rules, AI, evidence, GitHub Release) without files, S3, security or history.
+ */
+async function runBackfill(
+  o: TagloreOptions,
+  current: SemVer,
+  tags: string[],
+  prefix: string,
+  count: number,
+  repository: string | undefined,
+  log: Logger,
+): Promise<{ notes: ReleaseNotes[]; written: string[] }> {
+  const earlier = stableTags(tags, prefix)
+    .filter((t) => compareSemver(t, current) < 0)
+    .slice(-count);
+  if (!earlier.length) {
+    log.info("Backfill: no earlier tags.");
+    return { notes: [], written: [] };
+  }
+  const token = o.githubToken ?? process.env.GITHUB_TOKEN;
+  const releases = repository && token ? new GitHubReleases(token, parseRepo(repository), o.githubApiUrl, o.octokitOptions) : null;
+  const publish = (o.publishGithubRelease ?? true) && !o.dryRun;
+  if (publish && !releases) {
+    log.warn("Backfill without a GitHub token: notes for earlier tags go into history.json only, not into their GitHub Releases.");
+  }
+  log.info(`Backfill: ${earlier.length} earlier tag(s), ${earlier[0]!.raw} to ${earlier.at(-1)!.raw}.`);
+  const out: ReleaseNotes[] = [];
+  const written: string[] = [];
+  for (const tag of earlier) {
+    const existing = releases ? await releases.readAsset(tag.raw) : null;
+    if (existing) {
+      const parsed = ReleaseNotesSchema.safeParse(JSON.parse(existing));
+      if (parsed.success) {
+        log.info(`Backfill: ${tag.raw} already has notes, skipped.`);
+        out.push(parsed.data);
+        continue;
+      }
+    }
+    log.info(`Backfill: writing notes for ${tag.raw}...`);
+    const r = await runTaglore({
+      ...o,
+      to: tag.raw,
+      from: undefined,
+      backfill: 0,
+      backfillRun: true,
+      outputDir: undefined,
+      s3Uri: undefined,
+      previewFile: undefined,
+      notesFrom: undefined,
+      baselineFile: undefined,
+      historyFile: undefined,
+      historyLimit: 0,
+      security: false,
+      securityImage: undefined,
+      securityFailOn: undefined,
+      releaseDraft: false,
+      publishGithubRelease: publish && !!releases,
+    });
+    out.push(r.notes);
+    written.push(tag.raw);
+  }
+  log.info(`Backfill: wrote notes for ${written.length} tag(s), ${earlier.length - written.length} already had them.`);
+  return { notes: out, written };
 }

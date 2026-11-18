@@ -3,7 +3,7 @@ import { resolve } from "node:path";
 import type { GitHubReleases } from "./publish/github-release.js";
 import { RELEASE_ASSET_NAME } from "./publish/github-release.js";
 import { HistorySchema, type History, type ReleaseNotes, ReleaseNotesSchema, SCHEMA_VERSION } from "./schema.js";
-import { compareSemver, type SemVer, stableTags } from "./version.js";
+import { compareSemver, parseSemver, type SemVer, stableTags } from "./version.js";
 
 export const HISTORY_ASSET_NAME = "taglore-history.json";
 
@@ -18,6 +18,8 @@ export interface HistoryOptions {
   cwd: string;
   releases: GitHubReleases | null;
   log: { info(m: string): void; warn(m: string): void };
+  /** Notes written in this run for earlier tags (backfill). Merged in, newest wins per version. */
+  extra?: ReleaseNotes[];
 }
 
 function parseHistory(raw: string): ReleaseNotes[] | null {
@@ -73,6 +75,16 @@ export async function buildHistory(o: HistoryOptions): Promise<History> {
     o.log.info("No GitHub token or history-file: history.json contains this release only.");
   }
 
+  if (o.extra?.length) {
+    // Backfilled notes are fresh, so they win over older copies; then newest version first.
+    const byVersion = new Map(earlier.map((r) => [r.version, r]));
+    for (const r of o.extra) byVersion.set(r.version, r);
+    earlier = [...byVersion.values()].sort((a, b) => {
+      const va = parseSemver(a.version, o.prefix);
+      const vb = parseSemver(b.version, o.prefix);
+      return va && vb ? compareSemver(vb, va) : 0;
+    });
+  }
   const seen = new Set([o.notes.version]);
   const releases = [o.notes];
   for (const r of earlier) {

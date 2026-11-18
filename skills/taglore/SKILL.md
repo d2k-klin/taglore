@@ -128,6 +128,7 @@ Behaviour to explain to the user: each major/minor announcement shows once per b
 ## Version rules (for answering questions)
 
 - `compare: auto`: patch compares with the previous tag; minor and major compare with the previous `X.Y.0`, which covers all patches in between. First release compares from the root commit. Prereleases are never used as a base.
+- `backfill` (default `0`): onboarding. Writes notes for up to N earlier tags (oldest first, max 50) into their GitHub Releases and `history.json`. Existing release text is kept (Taglore's notes prepended), older releases never become "Latest" or pop up, tags with notes are skipped (safe to leave on). Suggest `backfill: 20` when a project adopts Taglore with existing tags, run once via workflow_dispatch on the latest tag. Each written tag is one AI request.
 - `patch-notes` (default `ai`): `ai` = AI notes for patches, the app keeps the last major/minor announcement; `announce` = AI notes and a What's New of their own; `commits` = commit messages (pre-1.4.0 behaviour). Adds to `ai-for`/`announce-on`, never removes.
 - `ai-for` (default `major,minor`): which release types get AI notes; others use commit messages. Patches follow `patch-notes`.
 - `announce-on` (default `major,minor`): which release types write a new `latest.json`. Other releases copy the last announced `taglore.json` from GitHub Releases (or from `baseline-file`).

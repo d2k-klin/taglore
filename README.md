@@ -49,6 +49,7 @@ Other modes: `previous-tag`, `previous-minor`, `previous-major`, or `explicit` w
 
 **Patch releases** get AI notes by default, so the GitHub Release and the changelog page read as well as for a minor. `patch-notes` chooses:
 
+| `backfill` | `0` | Onboarding: also write notes for up to this many earlier tags (max 50); tags that already have notes are skipped |
 | `patch-notes` | Notes | `latest.json` in the image |
 |---|---|---|
 | `ai` (default) | AI | the last major/minor announcement, so nobody gets a popup for a bug fix |
@@ -56,6 +57,25 @@ Other modes: `previous-tag`, `previous-minor`, `previous-major`, or `explicit` w
 | `commits` | commit messages | the last major/minor announcement (the behaviour before v1.4.0) |
 
 Every release gets a `taglore.json` asset. On a patch that doesn't announce, Taglore downloads the announcement from the last minor's release and writes it as `latest.json`, so the image you build for `v1.9.1` still contains the `v1.9.0` What's New. If there is none (Taglore was adopted on a patch, or no token to fetch it), a patch's `latest.json` holds its own notes with `announce: false`: a "What's new" menu item has content, and nobody gets a popup. `patch-notes` adds to `ai-for` and `announce-on`; a type you list there is never removed.
+
+### Onboarding: notes for your earlier releases
+
+A project that adopts Taglore at `v3.4.0` has a changelog page with one entry, and its next patch has no earlier announcement to reuse. `backfill` fixes both on the first run:
+
+```yaml
+- uses: d2k-klin/taglore@v1
+  with:
+    backfill: 20        # also write notes for up to 20 earlier tags
+```
+
+- Earlier tags are processed oldest first, with the usual compare rules, so `v3.3.2` is compared with `v3.3.1` and finds `v3.3.0`'s announcement.
+- Each one gets its GitHub Release (created if missing) with a `taglore.json`. None of them takes the "Latest" badge, and none of them pops up in your app: `latest.json` is only written for the release that triggered the run.
+- A release that already has text keeps it. Taglore's notes go on top (`release-body: prepend`, the backfill default), so hand-written or GitHub-generated notes stay. Set `release-body` to change that.
+- Tags that already have Taglore notes are skipped, so leaving `backfill` on costs one API call per tag. Re-run the job to continue after a failure.
+- `history.json` includes them right away; raise `history-limit` above 20 to keep more. With `publish-github-release: false` they only go into `history.json`.
+- Each written tag is one AI request. Security scans, files and S3 uploads run for the triggering release only.
+
+To backfill before your next release, run the workflow once by hand on your latest tag (`workflow_dispatch`, "Use workflow from: Tags").
 
 ## GitHub Copilot setup
 
@@ -366,7 +386,7 @@ More in [examples/workflows](examples/workflows).
 | `history-limit` | `20` | Releases kept in `history.json`; `0` turns it off |
 | `history-file` | | Local `history.json` to continue from instead of GitHub Releases |
 | `publish-github-release` | `true` | Create/update the GitHub Release and attach `taglore.json` |
-| `release-body` | `replace` | For a release that already has a body (e.g. Release Please): `prepend` or `append` Taglore's notes and keep its title |
+| `release-body` | `replace` (`prepend` for backfilled releases) | For a release that already has a body (e.g. Release Please): `prepend` or `append` Taglore's notes and keep its title |
 | `release-draft` | `false` | Create new releases as drafts |
 | `include-commits` | `true` | Collapsible commit list in the Markdown |
 | `output-dir` | | Write `latest.json`, `release.json`, `RELEASE_NOTES.md` here |
@@ -387,7 +407,7 @@ More in [examples/workflows](examples/workflows).
 | `github-token` | `github.token` | Token for Releases / GitHub Models |
 | `working-directory` | workspace | Repository folder |
 
-**Outputs:** `version`, `previous-version`, `release-type`, `announce`, `provider`, `release-url`, `markdown`, `json`, `latest-json-path`, `release-json-path`, `markdown-path`, `history-json-path`, `unverified-statements`, `artifact-name`, and with `security-scan`: `security-open`, `security-introduced`, `security-fixed`, `security-open-critical`, `security-open-high`, `security-json-path`, `sbom-path`, `image-sbom-path`.
+**Outputs:** `version`, `backfilled`, `previous-version`, `release-type`, `announce`, `provider`, `release-url`, `markdown`, `json`, `latest-json-path`, `release-json-path`, `markdown-path`, `history-json-path`, `unverified-statements`, `artifact-name`, and with `security-scan`: `security-open`, `security-introduced`, `security-fixed`, `security-open-critical`, `security-open-high`, `security-json-path`, `sbom-path`, `image-sbom-path`.
 
 ## CLI
 

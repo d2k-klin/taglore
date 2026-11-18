@@ -97,6 +97,7 @@ async function main() {
     copilotArgs: list<string>("copilot-args"),
     aiFor: list<ReleaseType>("ai-for"),
     patchNotes: input("patch-notes") as PatchNotesMode | undefined,
+    backfill: input("backfill") ? Number(input("backfill")) : undefined,
     onAiFailure: input("on-ai-failure") as "fallback" | "fail" | undefined,
     announceOn: list<ReleaseType>("announce-on"),
     excludes: list<string>("exclude"),
@@ -139,6 +140,7 @@ async function main() {
   }
 
   core.setOutput("version", result.version);
+  core.setOutput("backfilled", result.backfilled.join(","));
   core.setOutput("previous-version", result.previousVersion ?? "");
   core.setOutput("release-type", result.releaseType);
   core.setOutput("announce", String(result.announce));
