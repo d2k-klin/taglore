@@ -20,6 +20,13 @@ export interface EvidenceReport {
   unverified: { section: Section; title: string }[];
   /** True when strict mode removed the unverified statements from the notes. */
   removed: boolean;
+  /** True when the notes were reused (notes-from) and not checked again. */
+  skipped?: boolean;
+}
+
+/** Report for reused notes, which were checked when they were written. */
+export function skippedEvidence(mode: EvidenceMode): EvidenceReport {
+  return { mode, items: [], unverified: [], removed: false, skipped: true };
 }
 
 /**
@@ -58,6 +65,7 @@ const cell = (s: string) => s.replace(/[|<>`\r\n]/g, " ").replace(/\s+/g, " ").t
 
 /** Review table for the workflow run summary. */
 export function renderEvidenceMarkdown(r: EvidenceReport): string {
+  if (r.skipped) return "### 🔎 Evidence\n\nNot checked again: these notes were reused from an earlier step (`notes-from`) and were checked when they were written.\n\n";
   if (!r.items.length && !r.unverified.length) return "";
   let md = "### 🔎 Evidence\n\n";
   if (r.unverified.length) {

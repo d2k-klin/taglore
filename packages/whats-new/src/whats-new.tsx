@@ -61,7 +61,15 @@ export function WhatsNew({ labels, className, compact, children, onDismiss, ...o
   useEffect(() => {
     const d = ref.current;
     if (!d) return;
-    if (state.open && !d.open) d.showModal?.();
+    if (state.open && !d.open) {
+      d.showModal?.();
+      // Start at the top, also when reopened after scrolling (and for unstyled use).
+      d.scrollTop = 0;
+      const body = d.querySelector<HTMLElement>(".taglore-wn__body");
+      if (body) body.scrollTop = 0;
+      // Browsers would focus the scrolling body; the close button is the intended first stop.
+      d.querySelector<HTMLElement>(".taglore-wn__close")?.focus({ preventScroll: true });
+    }
     if (!state.open && d.open) d.close();
   }, [state.open]);
 
@@ -100,7 +108,7 @@ export function WhatsNew({ labels, className, compact, children, onDismiss, ...o
         {!compact && <Section title={l.fixes} items={n.fixes} kind="fixes" />}
       </div>
       <footer className="taglore-wn__footer">
-        <button type="button" className="taglore-wn__close" onClick={close} autoFocus>
+        <button type="button" className="taglore-wn__close" onClick={close}>
           {l.close}
         </button>
       </footer>

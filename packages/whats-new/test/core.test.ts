@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { filterReleases, shouldShow } from "../src/core.js";
+import { CSS } from "../src/styles.js";
 import type { ReleaseNotes } from "../src/types.js";
 
 const store = new Map<string, string>();
@@ -42,5 +43,17 @@ describe("filterReleases", () => {
     expect(filterReleases(all, "v1.2.0")[0]!.highlights).toHaveLength(2);
     expect(filterReleases(all, "nothing here")).toEqual([]);
     expect(filterReleases(all, "csv EXPORT").map((x) => x.version)).toEqual(["v1.1.0"]);
+  });
+});
+
+
+describe("dialog layout", () => {
+  // Regression: showModal() focuses the close button at the end; if the whole dialog
+  // scrolls, it opens scrolled to the bottom and hides the title.
+  it("scrolls only the body and keeps the closed dialog hidden", () => {
+    expect(CSS).toMatch(/\.taglore-wn \{[^}]*overflow: hidden;/);
+    expect(CSS).toContain(".taglore-wn[open] { display: flex; flex-direction: column; }");
+    expect(CSS).not.toMatch(/\.taglore-wn \{[^}]*display:/);
+    expect(CSS).toMatch(/\.taglore-wn__body \{[^}]*min-height: 0;[^}]*overflow-y: auto;/);
   });
 });

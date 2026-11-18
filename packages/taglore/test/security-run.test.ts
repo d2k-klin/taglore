@@ -174,6 +174,22 @@ describe("runTaglore with security scanning", () => {
     rmSync(out, { recursive: true, force: true });
   });
 
+  it("does not check reused notes for evidence again", async () => {
+    const out = join(repo, "..", `out-ev-${Date.now()}`);
+    const first = await runTaglore({ cwd: repo, to: "v1.1.0", provider: "none", publishGithubRelease: false, outputDir: out, log: silent });
+    // Simulate notes written before 1.2: statements without commit references.
+    const file = join(out, "release.json");
+    const old = JSON.parse(readFileSync(file, "utf8"));
+    for (const k of ["highlights", "improvements", "fixes", "breaking"]) for (const i of old[k]) delete i.commits;
+    writeFileSync(file, JSON.stringify(old));
+    const r = await runTaglore({ cwd: repo, to: "v1.1.0", provider: "none", publishGithubRelease: false, dryRun: true, notesFrom: file, evidence: "strict", log: silent });
+    expect(r.evidence.skipped).toBe(true);
+    expect(r.evidence.unverified).toEqual([]);
+    expect(r.notes.highlights.map((h) => h.title)).toEqual(first.notes.highlights.map((h) => h.title)); // nothing deleted
+    expect(r.evidenceMarkdown).toContain("Not checked again");
+    rmSync(out, { recursive: true, force: true });
+  });
+
   it("explains how to install missing scanners", async () => {
     await expect(runTaglore({ ...opts(), to: "v1.1.0", dryRun: true, syftCommand: "/nonexistent/syft" })).rejects.toThrow(/Syft not found/);
   });

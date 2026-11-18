@@ -27,7 +27,9 @@ export function renderPreview(n: ReleaseNotes, evidence: EvidenceReport, opts: {
         }</td></tr>`,
     )
     .join("");
-  const banner = evidence.unverified.length
+  const banner = evidence.skipped
+    ? `<p class="banner ok">Evidence not checked again: these notes were reused from an earlier step (notes-from) and were checked when they were written.</p>`
+    : evidence.unverified.length
     ? evidence.removed
       ? `<p class="banner warn">${evidence.unverified.length} statement(s) were removed because no commit in this release supports them: ${esc(evidence.unverified.map((u) => u.title).join("; "))}</p>`
       : `<p class="banner warn">${evidence.unverified.length} statement(s) have no supporting commit. Check them before publishing.</p>`

@@ -1,5 +1,5 @@
 import { collectChanges, DEFAULT_EXCLUDES, type ChangeSet } from "./collect.js";
-import { type EvidenceMode, type EvidenceReport, renderEvidenceMarkdown, verifyEvidence } from "./evidence.js";
+import { type EvidenceMode, type EvidenceReport, renderEvidenceMarkdown, skippedEvidence, verifyEvidence } from "./evidence.js";
 import { fallbackNotes } from "./fallback.js";
 import { buildHistory, HISTORY_ASSET_NAME } from "./history.js";
 import { renderPreview } from "./preview.js";
@@ -281,8 +281,14 @@ export async function runTaglore(opts: TagloreOptions = {}): Promise<TagloreResu
   // 3b. Evidence: every statement must point at real commits in this range.
   const evidenceMode = o.evidence ?? "warn";
   if (evidenceMode !== "warn" && evidenceMode !== "strict") throw new Error(`Invalid evidence "${evidenceMode}". Use warn or strict.`);
-  const checked = verifyEvidence(sanitizeNotes(body), changes.commits, evidenceMode);
+  // Reused notes (notes-from) were checked when they were written. Checking them again would
+  // flag or, in strict mode, delete statements from notes that are already published, and
+  // notes written before 1.2 carry no commit references at all.
+  const checked = reused
+    ? { notes: sanitizeNotes(body), report: skippedEvidence(evidenceMode) }
+    : verifyEvidence(sanitizeNotes(body), changes.commits, evidenceMode);
   const evidence = checked.report;
+  if (reused) log.info("Evidence check skipped: the notes were checked when they were written.");
   if (evidence.unverified.length) {
     const titles = evidence.unverified.map((u) => u.title).join("; ");
     log.warn(

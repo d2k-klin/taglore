@@ -63,6 +63,13 @@ export class TagloreWhatsNewElement extends HTMLElement {
   show() {
     if (!this.dialog || !this.notes) return;
     if (!this.dialog.open) this.dialog.showModal?.();
+    // Start at the top, also when the dialog is reopened after scrolling (and for unstyled use).
+    this.dialog.scrollTop = 0;
+    const body = this.dialog.querySelector<HTMLElement>(".taglore-wn__body");
+    if (body) body.scrollTop = 0;
+    // Browsers would focus the scrolling body (a focusable scroller). The close button is the
+    // intended first stop, and it is always in view now that only the body scrolls.
+    this.dialog.querySelector<HTMLElement>(".taglore-wn__close")?.focus({ preventScroll: true });
     this.dispatchEvent(new CustomEvent("taglore:open", { detail: this.notes, bubbles: true }));
   }
 

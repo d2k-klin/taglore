@@ -17,22 +17,25 @@
   color: var(--taglore-wn-fg);
   box-shadow: 0 24px 64px rgb(0 0 0 / 0.25);
   font: inherit;
-  overflow: auto;
+  /* Only the body scrolls, so the title and the close button stay in view. */
+  overflow: hidden;
 }
+/* display only while open: a closed <dialog> must stay hidden. */
+.taglore-wn[open] { display: flex; flex-direction: column; }
 .taglore-wn::backdrop { background: rgb(15 23 42 / 0.45); }
 @media (prefers-color-scheme: dark) {
   .taglore-wn, .taglore-cl { --taglore-wn-bg: #111827; --taglore-wn-fg: #f9fafb; --taglore-wn-muted: #9ca3af; --taglore-wn-accent: #818cf8; --taglore-wn-warn: #fbbf24; }
 }
-.taglore-wn__header { padding: 1.5rem 1.5rem 0.5rem; }
+.taglore-wn__header { flex: none; padding: 1.5rem 1.5rem 0.5rem; }
 .taglore-wn__eyebrow { margin: 0 0 0.25rem; font-size: 0.75rem; letter-spacing: 0.06em; text-transform: uppercase; color: var(--taglore-wn-accent); font-weight: 600; }
 .taglore-wn__title { margin: 0 0 0.5rem; font-size: 1.25rem; line-height: 1.3; }
 .taglore-wn__summary { margin: 0; color: var(--taglore-wn-muted); line-height: 1.5; }
-.taglore-wn__body { padding: 0.5rem 1.5rem; }
+.taglore-wn__body { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 0.5rem 1.5rem; }
 .taglore-wn__section-title { margin: 1rem 0 0.5rem; font-size: 0.875rem; }
 .taglore-wn__section--breaking .taglore-wn__section-title { color: var(--taglore-wn-warn); }
 .taglore-wn__list { margin: 0; padding-left: 1.1rem; display: grid; gap: 0.4rem; line-height: 1.45; }
 .taglore-wn__item-desc { color: var(--taglore-wn-muted); }
-.taglore-wn__footer { display: flex; justify-content: flex-end; padding: 1rem 1.5rem 1.5rem; }
+.taglore-wn__footer { flex: none; display: flex; justify-content: flex-end; padding: 1rem 1.5rem 1.5rem; border-top: 1px solid color-mix(in srgb, var(--taglore-wn-muted) 20%, transparent); }
 .taglore-wn__close { border: 0; border-radius: 999px; padding: 0.55rem 1.2rem; background: var(--taglore-wn-accent); color: #fff; font: inherit; font-weight: 600; cursor: pointer; }
 .taglore-wn__close:focus-visible { outline: 3px solid color-mix(in srgb, var(--taglore-wn-accent) 40%, transparent); outline-offset: 2px; }
 .taglore-cl { color: var(--taglore-wn-fg); font: inherit; max-width: 760px; }
