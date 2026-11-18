@@ -72,7 +72,8 @@ function excludePathspecs(excludes: string[]): string[] {
 export function normalizePaths(paths: string[] | undefined): string[] {
   const out: string[] = [];
   for (const raw of paths ?? []) {
-    const p = raw.trim().replace(/^\.\//, "").replace(/\/+$/, "");
+    // Backslashes count as separators too, so "..\\x" cannot slip past the ".." check on Windows.
+    const p = raw.trim().replace(/\\/g, "/").replace(/^(\.\/)+/, "").replace(/\/+$/, "");
     if (!p || p === ".") continue;
     if (p.startsWith("/") || /^[A-Za-z]:/.test(p) || p.split("/").includes("..") || p.startsWith(":")) {
       throw new Error(`Invalid path "${raw}": use a folder or file relative to the repository root, without "..".`);

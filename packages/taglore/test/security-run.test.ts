@@ -1,11 +1,11 @@
 import { execFileSync } from "node:child_process";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { runTaglore } from "../src/run.js";
 import { grypeBase, grypeHead, sbomBase, sbomHead } from "./fixtures/security.js";
-import { expandImage } from "../src/security/scan.js";
+import { expandImage, mergeCycloneDx, runSecurityScan } from "../src/security/scan.js";
 
 const deb = (name: string, version: string) => ({ type: "library", name, version, purl: `pkg:deb/debian/${name}@${version}`, licenses: [] });
 const debVuln = (id: string, sev: string, name: string, version: string, fix: string[]) => ({
@@ -220,6 +220,26 @@ describe("runTaglore with security scanning", () => {
     rmSync(mono, { recursive: true, force: true });
   });
 
+  it("refuses symlinked paths that would scan outside the selected folders", async () => {
+    const mono = mkdtempSync(join(tmpdir(), "taglore-sec-link-"));
+    const g = (args: string[]) => execFileSync("git", args, { cwd: mono, stdio: "ignore" });
+    g(["init", "-q", "-b", "main"]);
+    g(["config", "user.email", "t@example.com"]);
+    g(["config", "user.name", "t"]);
+    mkdirSync(join(mono, "apps/api"), { recursive: true });
+    writeFileSync(join(mono, "apps/api/.fixture-sbom.json"), JSON.stringify({ ...sbomHead, "x-grype": grypeHead }));
+    symlinkSync("api", join(mono, "apps/web")); // apps/web -> apps/api
+    g(["add", "."]);
+    g(["commit", "-qm", "feat: first"]);
+    g(["tag", "v1.0.0"]);
+    await expect(runTaglore({ ...opts(), cwd: mono, to: "v1.0.0", dryRun: true, paths: ["apps/web"] })).rejects.toThrow(/symbolic link/);
+    rmSync(mono, { recursive: true, force: true });
+  });
+
+  it("validates paths when the security scan is called directly", async () => {
+    await expect(runSecurityScan({ cwd: repo, from: null, to: "v1.0.0", syft: join(bin, "syft"), grype: join(bin, "grype"), paths: ["../outside"], log: silent })).rejects.toThrow(/Invalid path/);
+  });
+
   it("explains how to install missing scanners", async () => {
     await expect(runTaglore({ ...opts(), to: "v1.1.0", dryRun: true, syftCommand: "/nonexistent/syft" })).rejects.toThrow(/Syft not found/);
   });
@@ -233,5 +253,19 @@ describe("expandImage", () => {
   });
   it("rejects a template without a placeholder", () => {
     expect(() => expandImage("a/b:latest", "v1.0.0")).toThrow(/must contain \{version\} or \{semver\}/);
+  });
+});
+
+describe("mergeCycloneDx", () => {
+  it("keeps every path's components and dependency relationships", () => {
+    const a = { bomFormat: "CycloneDX", metadata: { component: { "bom-ref": "root-web", name: "apps/web" } }, components: [{ "bom-ref": "lodash", name: "lodash" }], dependencies: [{ ref: "root-web", dependsOn: ["lodash"] }] };
+    const b = { bomFormat: "CycloneDX", metadata: { component: { "bom-ref": "root-ui", name: "packages/ui" } }, components: [{ "bom-ref": "lodash", name: "lodash" }, { "bom-ref": "react", name: "react" }], dependencies: [{ ref: "root-ui", dependsOn: ["react", "lodash"] }] };
+    const m = JSON.parse(mergeCycloneDx([JSON.stringify(a), JSON.stringify(b)]));
+    expect(m.components.map((c: { "bom-ref": string }) => c["bom-ref"]).sort()).toEqual(["lodash", "react", "root-ui"]);
+    expect(m.metadata.component["bom-ref"]).toBe("root-web");
+    expect(m.dependencies).toEqual([
+      { ref: "root-web", dependsOn: ["lodash"] },
+      { ref: "root-ui", dependsOn: ["react", "lodash"] },
+    ]);
   });
 });

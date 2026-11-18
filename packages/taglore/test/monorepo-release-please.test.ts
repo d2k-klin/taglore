@@ -40,11 +40,14 @@ describe("composeBody", () => {
 });
 
 describe("normalizePaths", () => {
+  it("treats backslashes as separators", () => {
+    expect(normalizePaths(["apps\\web\\"])).toEqual(["apps/web"]);
+  });
   it("cleans and de-duplicates", () => {
     expect(normalizePaths(["./apps/web/", "apps/web", " packages/ui ", "", "."])).toEqual(["apps/web", "packages/ui"]);
   });
   it("refuses paths outside the repository", () => {
-    for (const bad of ["/etc", "../other", "apps/../../x", "C:/x", ":(glob)*"]) {
+    for (const bad of ["/etc", "../other", "apps/../../x", "C:/x", ":(glob)*", "..\\outside", "apps\\..\\..\\x"]) {
       expect(() => normalizePaths([bad])).toThrow(/Invalid path/);
     }
   });
