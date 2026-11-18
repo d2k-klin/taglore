@@ -591,7 +591,13 @@ async function runBackfill(
   for (const tag of earlier) {
     const existing = releases ? await releases.readAsset(tag.raw) : null;
     if (existing) {
-      const parsed = ReleaseNotesSchema.safeParse(JSON.parse(existing));
+      let raw: unknown = null;
+      try {
+        raw = JSON.parse(existing);
+      } catch {
+        // A broken asset is treated like a missing one: the tag gets new notes.
+      }
+      const parsed = ReleaseNotesSchema.safeParse(raw);
       if (parsed.success) {
         log.info(`Backfill: ${tag.raw} already has notes, skipped.`);
         out.push(parsed.data);

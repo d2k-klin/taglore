@@ -49,7 +49,6 @@ Other modes: `previous-tag`, `previous-minor`, `previous-major`, or `explicit` w
 
 **Patch releases** get AI notes by default, so the GitHub Release and the changelog page read as well as for a minor. `patch-notes` chooses:
 
-| `backfill` | `0` | Onboarding: also write notes for up to this many earlier tags (max 50); tags that already have notes are skipped |
 | `patch-notes` | Notes | `latest.json` in the image |
 |---|---|---|
 | `ai` (default) | AI | the last major/minor announcement, so nobody gets a popup for a bug fix |
@@ -371,6 +370,7 @@ More in [examples/workflows](examples/workflows).
 | `model` | provider default | Model id |
 | `copilot-token` | | Fine-grained PAT with Copilot Requests (personal repos) |
 | `copilot-version` | `latest` | `@github/copilot` version to install |
+| `backfill` | `0` | Onboarding: also write notes for up to this many earlier tags (max 50); tags that already have notes are skipped |
 | `patch-notes` | `ai` | `commits`, `ai` or `announce`: how patch releases are written |
 | `ai-for` | `major,minor` | Release types that get AI notes |
 | `on-ai-failure` | `fallback` | `fallback` or `fail` |

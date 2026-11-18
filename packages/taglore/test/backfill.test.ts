@@ -78,6 +78,8 @@ beforeAll(async () => {
     assets: [{ id: 11, name: "taglore.json", content: JSON.stringify({ schemaVersion: 1, version: "v1.0.0", previousVersion: null, releaseType: "minor", announce: true, date: "2026-01-01", title: "First", summary: "Hello.", highlights: [], improvements: [], fixes: [], breaking: [], generator: { name: "taglore", version: "1.0.0", provider: "copilot", model: "default" } }) }],
   });
   releases.push({ id: 2, tag_name: "v1.0.1", name: "v1.0.1 hotfix", body: "Hotfix written by hand.", assets: [] });
+  // A broken asset must not stop onboarding: v1.1.0 gets new notes.
+  releases.push({ id: 3, tag_name: "v1.1.0", name: "v1.1.0", body: "", assets: [{ id: 31, name: "taglore.json", content: "not json{" }] });
 
   srv = http.createServer((req, res) => {
     let raw = "";
@@ -169,11 +171,12 @@ describe("backfill on onboarding", () => {
     expect(hotfix.body.endsWith("Hotfix written by hand.")).toBe(true);
 
     // Older releases never take the Latest badge; this release does.
-    expect(releases.find((x) => x.tag_name === "v1.1.0")!.make_latest).toBe("false");
     expect(releases.find((x) => x.tag_name === "v1.1.1")!.make_latest).toBe("false");
     expect(releases.find((x) => x.tag_name === "v1.2.0")!.make_latest).toBe("true");
     for (const t of ["v1.0.1", "v1.1.0", "v1.1.1", "v1.2.0"]) {
       expect(releases.find((x) => x.tag_name === t)!.assets.map((a) => a.name)).toContain("taglore.json");
+      // The broken asset was replaced, not kept next to the new one.
+      expect(releases.find((x) => x.tag_name === t)!.assets.filter((a) => a.name === "taglore.json")).toHaveLength(1);
     }
 
     const history = JSON.parse(readFileSync(join(out, "history.json"), "utf8"));
