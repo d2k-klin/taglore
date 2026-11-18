@@ -357,7 +357,7 @@ export async function runTaglore(opts: TagloreOptions = {}): Promise<TagloreResu
     // Nothing earlier to show (Taglore was adopted on a patch, or no token to fetch it):
     // ship this release's notes, so the app's "What's new" menu still has content.
     // announce stays false, so nobody gets a popup for it.
-    if (!latest && releaseType !== "prerelease") {
+    if (!latest && releaseType === "patch") {
       log.info("latest.json holds this release's own notes (announce: false, no popup).");
       latest = notes;
     }

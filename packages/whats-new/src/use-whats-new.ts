@@ -46,21 +46,23 @@ export function useWhatsNew(options: UseWhatsNewOptions = {}): WhatsNewState {
     if (!enabled) return;
     if (data !== undefined) {
       setNotes(data);
-      if (data && shouldShow(data, storageKey, showOnFirstVisit)) {
-        setUnseen(true);
-        if (autoOpen) setOpen(true);
-      }
+      // Set either way, so a badge does not stick when new data is already seen.
+      const unseen = !!data && shouldShow(data, storageKey, showOnFirstVisit);
+      setUnseen(unseen);
+      if (unseen && autoOpen) setOpen(true);
       return;
     }
     const ctrl = new AbortController();
     loadNotes(url, ctrl.signal)
       .then((n) => {
-        if (!n) return;
-        setNotes(n);
-        if (shouldShow(n, storageKey, showOnFirstVisit)) {
-          setUnseen(true);
-          if (autoOpen) setOpen(true);
+        if (!n) {
+          setUnseen(false);
+          return;
         }
+        setNotes(n);
+        const unseen = shouldShow(n, storageKey, showOnFirstVisit);
+        setUnseen(unseen);
+        if (unseen && autoOpen) setOpen(true);
       })
       .catch((e: unknown) => {
         if (!ctrl.signal.aborted) setError(e instanceof Error ? e : new Error(String(e)));

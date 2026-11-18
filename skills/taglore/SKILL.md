@@ -117,7 +117,7 @@ Target URL in all cases: `GET /release-notes/latest.json`. Copy the matching exa
 
 - **Mobile, desktop or anything else:** fetch `latest.json`; show it when `announce` is true and `version` is newer than the version stored as last seen; store `version` when the user dismisses it. Render all fields as plain text. Generate types from `schema/release.schema.json`.
 
-Behaviour to explain to the user: each major/minor announcement shows once per browser/device; first-time users are marked up to date silently unless `show-on-first-visit` is set; patch releases don't re-announce unless `patch-notes: announce`. The popup is always optional: `no-auto-open` (web component) or `autoOpen={false}` (React) never pops up; the app reads `unseen` (attribute/property, or the hook's `unseen`, plus the `taglore:unseen` event) for a badge and calls `show()` from a menu item. Ask the user which they want.
+Behaviour to explain to the user: each major/minor announcement shows once per browser/device; first-time users are marked up to date silently unless `show-on-first-visit` is set; patch releases don't re-announce unless `patch-notes: announce` (or `announce-on` lists `patch` explicitly; `patch-notes` only adds to it). The popup is always optional: `no-auto-open` (web component) or `autoOpen={false}` (React) never pops up; the app reads `unseen` (attribute/property, or the hook's `unseen`, plus the `taglore:unseen` event) for a badge and calls `show()` from a menu item. Ask the user which they want.
 
 ## 5. Verify
 

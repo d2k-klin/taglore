@@ -53,11 +53,16 @@ export class TagloreWhatsNewElement extends HTMLElement {
     this.ctrl = new AbortController();
     try {
       const notes = await loadNotes(this.getAttribute("src") ?? DEFAULT_URL, this.ctrl.signal);
-      if (!notes) return;
+      if (!notes) {
+        this.removeAttribute("unseen");
+        return;
+      }
       this.notes = notes;
       this.render();
-      if (shouldShow(notes, this.storageKey, this.hasAttribute("show-on-first-visit"))) {
-        this.setAttribute("unseen", "");
+      const unseen = shouldShow(notes, this.storageKey, this.hasAttribute("show-on-first-visit"));
+      // Reset first: a new src may point at notes that are already seen.
+      this.toggleAttribute("unseen", unseen);
+      if (unseen) {
         this.dispatchEvent(new CustomEvent("taglore:unseen", { detail: notes, bubbles: true }));
         if (!this.hasAttribute("no-auto-open")) this.show();
       }

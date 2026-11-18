@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync, chmodSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync, chmodSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -113,6 +113,19 @@ describe("runTaglore end to end", () => {
     const latest = JSON.parse(readFileSync(join(out, "latest.json"), "utf8"));
     expect(latest.version).toBe("v1.1.1");
     expect(latest.announce).toBe(false);
+  });
+
+  it("only patches fall back to their own notes; an unannounced minor writes no latest.json", async () => {
+    const out = join(repo, "out-minor-unannounced");
+    const saved = { t: process.env.GITHUB_TOKEN, r: process.env.GITHUB_REPOSITORY };
+    delete process.env.GITHUB_TOKEN;
+    delete process.env.GITHUB_REPOSITORY;
+    const r = await runTaglore({ cwd: repo, to: "v1.1.0", announceOn: ["major"], provider: "none", publishGithubRelease: false, outputDir: out, log: silent }).finally(() => {
+      if (saved.t !== undefined) process.env.GITHUB_TOKEN = saved.t;
+      if (saved.r !== undefined) process.env.GITHUB_REPOSITORY = saved.r;
+    });
+    expect(r.announce).toBe(false);
+    expect(existsSync(join(out, "latest.json"))).toBe(false);
   });
 
   it("rejects an unknown patch-notes value", async () => {

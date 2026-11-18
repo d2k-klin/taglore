@@ -55,7 +55,7 @@ Other modes: `previous-tag`, `previous-minor`, `previous-major`, or `explicit` w
 | `announce` | AI | this patch, with `announce: true`, like a minor |
 | `commits` | commit messages | the last major/minor announcement (the behaviour before v1.4.0) |
 
-Every release gets a `taglore.json` asset. On a patch that doesn't announce, Taglore downloads the announcement from the last minor's release and writes it as `latest.json`, so the image you build for `v1.9.1` still contains the `v1.9.0` What's New. If there is none (Taglore was adopted on a patch, or no token to fetch it), `latest.json` holds the patch's own notes with `announce: false`: a "What's new" menu item has content, and nobody gets a popup. `patch-notes` adds to `ai-for` and `announce-on`; a type you list there is never removed.
+Every release gets a `taglore.json` asset. On a patch that doesn't announce, Taglore downloads the announcement from the last minor's release and writes it as `latest.json`, so the image you build for `v1.9.1` still contains the `v1.9.0` What's New. If there is none (Taglore was adopted on a patch, or no token to fetch it), a patch's `latest.json` holds its own notes with `announce: false`: a "What's new" menu item has content, and nobody gets a popup. `patch-notes` adds to `ai-for` and `announce-on`; a type you list there is never removed.
 
 ## GitHub Copilot setup
 
