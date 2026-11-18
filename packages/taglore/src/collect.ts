@@ -65,9 +65,27 @@ function excludePathspecs(excludes: string[]): string[] {
   return excludes.map((e) => `:(exclude,glob)${e}`);
 }
 
-export async function collectCommits(from: string | null, to: string, cwd: string): Promise<Commit[]> {
+/**
+ * Validates the folders/files a release is about (monorepos). Paths are relative to the
+ * repository root; absolute paths and ".." are refused so nothing outside the repo is read.
+ */
+export function normalizePaths(paths: string[] | undefined): string[] {
+  const out: string[] = [];
+  for (const raw of paths ?? []) {
+    const p = raw.trim().replace(/^\.\//, "").replace(/\/+$/, "");
+    if (!p || p === ".") continue;
+    if (p.startsWith("/") || /^[A-Za-z]:/.test(p) || p.split("/").includes("..") || p.startsWith(":")) {
+      throw new Error(`Invalid path "${raw}": use a folder or file relative to the repository root, without "..".`);
+    }
+    if (!out.includes(p)) out.push(p);
+  }
+  return out;
+}
+
+/** Only commits that touch `paths` (all commits when empty). */
+export async function collectCommits(from: string | null, to: string, cwd: string, paths: string[] = []): Promise<Commit[]> {
   const out = await git(
-    ["log", "--no-merges", `--format=%H${US}%an${US}%s${US}%b${RS}`, range(from, to)],
+    ["log", "--no-merges", `--format=%H${US}%an${US}%s${US}%b${RS}`, range(from, to), ...(paths.length ? ["--", ...paths] : [])],
     cwd,
   );
   return out
@@ -90,13 +108,16 @@ export async function collectChanges(opts: {
   cwd: string;
   excludes: string[];
   maxDiffBytes: number;
+  /** Limit the release to these folders/files (monorepos). Empty: the whole repository. */
+  paths?: string[];
 }): Promise<ChangeSet> {
   const { from, to, cwd, excludes, maxDiffBytes } = opts;
-  const commits = await collectCommits(from, to, cwd);
+  const paths = normalizePaths(opts.paths);
+  const commits = await collectCommits(from, to, cwd, paths);
 
   // For a first release there is no base; diff against the empty tree.
   const base = from ?? (await git(["hash-object", "-t", "tree", "/dev/null"], cwd)).trim();
-  const pathspec = ["--", ".", ...excludePathspecs(excludes)];
+  const pathspec = ["--", ...(paths.length ? paths : ["."]), ...excludePathspecs(excludes)];
 
   const nameStatus = await git(["diff", "--name-status", "--no-renames", base, to, ...pathspec], cwd);
   const files = nameStatus

@@ -15,7 +15,8 @@ Versions
   --to <ref>              Release tag (default: tag on HEAD, or GITHUB_REF)
   --from <ref>            Base ref (implies --compare explicit)
   --compare <mode>        auto | previous-tag | previous-minor | previous-major | explicit (default: auto)
-  --tag-prefix <p>        Tag prefix (default: v)
+  --tag-prefix <p>        Tag prefix (default: v), e.g. web-v for tags like web-v1.2.0
+  --path <p>              Monorepos: limit the release to this folder or file (repeatable)
 
 AI
   --provider <name>       copilot | github-models | none (default: copilot)
@@ -47,6 +48,7 @@ Output
   --github / --no-github  Create or update the GitHub Release (default: --no-github in the CLI)
   --repo <owner/name>     Repository for GitHub publishing (default: GITHUB_REPOSITORY)
   --draft                 Create the GitHub Release as draft
+  --release-body <m>      replace | prepend | append, for a release that already has a body
   --s3 <uri>              Upload the files to s3://bucket/prefix/
   --s3-region <region>
   --announce-on <types>   Release types that update latest.json (default: major,minor)
@@ -95,6 +97,8 @@ async function main() {
       "security-exclude": { type: "string", multiple: true },
       "security-image": { type: "string" },
       "notes-from": { type: "string" },
+      path: { type: "string", multiple: true },
+      "release-body": { type: "string" },
       evidence: { type: "string" },
       preview: { type: "string" },
       "history-limit": { type: "string" },
@@ -137,6 +141,8 @@ async function main() {
     securityExcludes: values["security-exclude"],
     securityImage: values["security-image"],
     notesFrom: values["notes-from"],
+    paths: values.path,
+    releaseBody: values["release-body"] as "replace" | "prepend" | "append" | undefined,
     evidence: values.evidence as "warn" | "strict" | undefined,
     previewFile: values.preview,
     historyLimit: values["history-limit"] ? Number(values["history-limit"]) : undefined,

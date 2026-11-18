@@ -1,0 +1,52 @@
+# Release Please decides the version and opens the release PR.
+# When that PR is merged, Taglore writes the user-facing notes in the same job:
+# a tag created with the default GITHUB_TOKEN does not start other workflows.
+name: Release
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+  pull-requests: write
+  packages: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - id: release
+        uses: googleapis/release-please-action@v4
+        with:
+          release-type: node
+
+      # Everything below runs only when the release PR was merged.
+      - uses: actions/checkout@v6
+        if: ${{ steps.release.outputs.release_created }}
+        with:
+          fetch-depth: 0
+
+      - id: notes
+        uses: d2k-klin/taglore@v1
+        if: ${{ steps.release.outputs.release_created }}
+        with:
+          to: ${{ steps.release.outputs.tag_name }}
+          release-body: prepend          # Taglore's notes on top, Release Please's changelog below
+          copilot-token: ${{ secrets.COPILOT_TOKEN }}
+          output-dir: release-notes      # latest.json + history.json for the image
+          web-components: true
+
+      - uses: docker/login-action@v3
+        if: ${{ steps.release.outputs.release_created }}
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: docker/build-push-action@v6
+        if: ${{ steps.release.outputs.release_created }}
+        with:
+          context: .
+          push: true
+          tags: ghcr.io/${{ github.repository }}:${{ steps.release.outputs.tag_name }}

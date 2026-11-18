@@ -140,3 +140,60 @@ jobs:
           # The notes text is reused, not regenerated.
           test "$(jq -r .title "$RUNNER_TEMP/sec/out-a/release.json")" = "$(jq -r .title "$RUNNER_TEMP/sec/out-b/release.json")"
           { echo; echo "#### With the image scan"; sed -n '/### 🔒 Security/,/<sub>/p' "$RUNNER_TEMP/sec/out-b/RELEASE_NOTES.md"; } >> "$GITHUB_STEP_SUMMARY"
+
+  monorepo-smoke-test:
+    # Real Syft + Grype on a monorepo: only apps/web is released (tags web-v*), apps/api must stay out.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - name: Create a throwaway monorepo
+        run: |
+          mkdir -p "$RUNNER_TEMP/mono" && cd "$RUNNER_TEMP/mono"
+          git init -q -b main && git config user.email ci@example.com && git config user.name ci
+          lock() { # dir package version
+            mkdir -p "$1"
+            printf '{"name":"%s","version":"1.0.0","lockfileVersion":3,"requires":true,"packages":{"":{"name":"%s","version":"1.0.0","dependencies":{"%s":"%s"}},"node_modules/%s":{"version":"%s","resolved":"https://registry.npmjs.org/%s/-/%s-%s.tgz","license":"MIT"}}}' \
+              "$(basename "$1")" "$(basename "$1")" "$2" "$3" "$2" "$3" "$2" "$2" "$3" > "$1/package-lock.json"
+          }
+          lock apps/web lodash 4.17.15 && git add . && git commit -qm "feat(web): first page"
+          lock apps/api minimist 1.2.0 && git add . && git commit -qm "feat(api): first endpoint"
+          git tag web-v1.0.0
+          lock apps/web lodash 4.17.21 && git add . && git commit -qm "fix(web): upgrade lodash"
+          echo "// auth" > apps/api/auth.js && git add . && git commit -qm "feat(api): token auth"
+          git tag web-v1.1.0
+      - id: dir
+        uses: ./
+        with:
+          working-directory: ${{ runner.temp }}/mono
+          to: web-v1.1.0
+          tag-prefix: web-v
+          paths: apps/web
+          ai-provider: none
+          publish-github-release: false
+          output-dir: out-dir
+          security-scan: true
+      - id: file
+        uses: ./
+        with:
+          working-directory: ${{ runner.temp }}/mono
+          to: web-v1.1.0
+          tag-prefix: web-v
+          paths: apps/web/package-lock.json
+          ai-provider: none
+          publish-github-release: false
+          output-dir: out-file
+          security-scan: true
+      - name: Check that only apps/web is described and scanned
+        run: |
+          cd "$RUNNER_TEMP/mono"
+          echo "dir: fixed=${{ steps.dir.outputs.security-fixed }} open=${{ steps.dir.outputs.security-open }}; file: fixed=${{ steps.file.outputs.security-fixed }}"
+          test "${{ steps.dir.outputs.previous-version }}" = "web-v1.0.0"
+          grep -q "Upgrade lodash" out-dir/RELEASE_NOTES.md
+          ! grep -q "token auth" out-dir/RELEASE_NOTES.md
+          test "${{ steps.dir.outputs.security-fixed }}" -gt 0
+          test "${{ steps.file.outputs.security-fixed }}" = "${{ steps.dir.outputs.security-fixed }}"
+          ! grep -q '"minimist"' out-dir/security.json
+          ! grep -q '"minimist"' out-file/security.json
+          { echo "#### Monorepo (paths: apps/web)"; sed -n '/### 🔒 Security/,/<sub>/p' out-dir/RELEASE_NOTES.md; } >> "$GITHUB_STEP_SUMMARY"

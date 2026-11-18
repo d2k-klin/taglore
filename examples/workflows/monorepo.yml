@@ -1,0 +1,34 @@
+# Monorepo: one app per release, with Release Please manifest mode
+# (release-please-config.json lists apps/web as a component, so tags look like web-v1.2.0).
+name: Release
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - id: release
+        uses: googleapis/release-please-action@v4
+
+      - uses: actions/checkout@v6
+        if: ${{ steps.release.outputs['apps/web--release_created'] }}
+        with:
+          fetch-depth: 0
+
+      - uses: d2k-klin/taglore@v1
+        if: ${{ steps.release.outputs['apps/web--release_created'] }}
+        with:
+          to: ${{ steps.release.outputs['apps/web--tag_name'] }}
+          tag-prefix: web-v
+          paths: apps/web, packages/ui   # only changes to the web app and what it ships with
+          product-name: Acme Web
+          release-body: prepend
+          copilot-token: ${{ secrets.COPILOT_TOKEN }}
+          output-dir: apps/web/public/release-notes

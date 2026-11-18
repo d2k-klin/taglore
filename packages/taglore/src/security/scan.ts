@@ -26,6 +26,8 @@ export interface SecurityScanOptions {
    * The previous version's image is resolved from the same template.
    */
   image?: string;
+  /** Monorepos: scan only these folders/files of the repository (the image scan is unaffected). */
+  paths?: string[];
   log: { info(m: string): void; warn(m: string): void };
 }
 
@@ -43,6 +45,20 @@ export function expandImage(template: string, version: string): string {
     throw new Error(`security-image "${template}" must contain {version} or {semver}, so the previous release's image can be found.`);
   }
   return template.replaceAll("{version}", version).replaceAll("{semver}", version.replace(/^[^\d]*/, ""));
+}
+
+/** One CycloneDX document from several (components de-duplicated by bom-ref or purl). */
+export function mergeCycloneDx(docs: string[]): string {
+  if (docs.length === 1) return docs[0]!;
+  const parsed = docs.map((d) => JSON.parse(d) as { components?: { "bom-ref"?: string; purl?: string; name?: string; version?: string }[] });
+  const seen = new Set<string>();
+  const components = parsed.flatMap((d) => d.components ?? []).filter((c) => {
+    const k = c["bom-ref"] ?? c.purl ?? `${c.name}@${c.version}`;
+    if (seen.has(k)) return false;
+    seen.add(k);
+    return true;
+  });
+  return JSON.stringify({ ...parsed[0], components }, null, 2);
 }
 
 /** Union of two scans of the same version (repository + image). */
@@ -126,9 +142,24 @@ export async function runSecurityScan(o: SecurityScanOptions): Promise<SecurityS
   };
   const excludes = ["./.git/**", ...(o.excludes ?? [])].flatMap((e) => ["--exclude", e]);
 
+  const { stat } = await import("node:fs/promises");
+  /** Repository scan of one version: the whole tree, or only the given paths. */
+  const scanRepo = async (dir: string, label: string) => {
+    if (!o.paths?.length) return scanSource(ctx, `dir:${dir}`, label, excludes);
+    const parts: { scan: ScanResult; sbom: string }[] = [];
+    for (const [i, p] of o.paths.entries()) {
+      const full = join(dir, p);
+      const st = await stat(full).catch(() => null);
+      if (!st) continue; // e.g. an app that did not exist yet in the previous version
+      parts.push(await scanSource(ctx, `${st.isDirectory() ? "dir" : "file"}:${full}`, `${label}-${i}`, st.isDirectory() ? excludes : []));
+    }
+    if (!parts.length) return { scan: { components: new Map(), vulns: new Map() } as ScanResult, sbom: JSON.stringify({ bomFormat: "CycloneDX", specVersion: "1.6", components: [] }) };
+    return { scan: parts.slice(1).reduce((a, b) => mergeScans(a, b.scan), parts[0]!.scan), sbom: mergeCycloneDx(parts.map((x) => x.sbom)) };
+  };
+
   try {
-    o.log.info(`Scanning the repository at ${o.to} with Syft ${syftVersion}...`);
-    const headRepo = await scanSource(ctx, `dir:${await checkout(o.to, "head")}`, "head-repo", excludes);
+    o.log.info(`Scanning the repository at ${o.to}${o.paths?.length ? ` (${o.paths.join(", ")})` : ""} with Syft ${syftVersion}...`);
+    const headRepo = await scanRepo(await checkout(o.to, "head"), "head-repo");
     let head = headRepo.scan;
     let imageSbom: string | null = null;
     let headImageScan: ScanResult | null = null;
@@ -145,7 +176,7 @@ export async function runSecurityScan(o: SecurityScanOptions): Promise<SecurityS
     let base: ScanResult | null = null;
     if (o.from) {
       o.log.info(`Scanning the repository at ${o.from} for comparison...`);
-      base = (await scanSource(ctx, `dir:${await checkout(o.from, "base")}`, "base-repo", excludes)).scan;
+      base = (await scanRepo(await checkout(o.from, "base"), "base-repo")).scan;
       if (baseImage && headImageScan) {
         try {
           o.log.info(`Scanning image ${baseImage} for comparison...`);
@@ -167,7 +198,7 @@ export async function runSecurityScan(o: SecurityScanOptions): Promise<SecurityS
       scannedAt: new Date().toISOString(),
       tools: { syft: syftVersion, grype: grypeVersion },
     });
-    report.sources = { repository: true, image: headImage, previousImage: baseImage };
+    report.sources = { repository: true, image: headImage, previousImage: baseImage, paths: o.paths ?? [] };
     report.warnings = warnings;
     return { report, sbom: headRepo.sbom, imageSbom };
   } finally {

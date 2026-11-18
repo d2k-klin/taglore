@@ -79,6 +79,8 @@ async function main() {
     grypeCommand,
     securityImage,
     notesFrom: input("notes-from"),
+    paths: list<string>("paths"),
+    releaseBody: input("release-body") as "replace" | "prepend" | "append" | undefined,
     evidence: input("evidence") as "warn" | "strict" | undefined,
     previewFile: input("preview-file"),
     historyLimit: input("history-limit") ? Number(input("history-limit")) : undefined,

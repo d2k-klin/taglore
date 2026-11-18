@@ -14,7 +14,7 @@ Source and full docs: https://github.com/d2k-klin/taglore
 Before writing anything, find out:
 
 1. **Tag style.** Run `git tag --list | tail -20`. Taglore expects SemVer tags with a prefix (default `v`). For prefixes like `web-v1.2.3`, set `tag-prefix: web-v`. If there are no tags, tell the user Taglore needs releases tagged `vX.Y.Z`.
-2. **Existing release workflow.** Look in `.github/workflows/` for a workflow triggered by `push: tags`. If one exists (Docker build, deploy), add Taglore as a step **before** the Docker build in that workflow. Do not create a second tag-triggered workflow that races it.
+2. **Existing release workflow.** If it uses Release Please, go straight to the Release Please row in step 2. Look in `.github/workflows/` for a workflow triggered by `push: tags`. If one exists (Docker build, deploy), add Taglore as a step **before** the Docker build in that workflow. Do not create a second tag-triggered workflow that races it.
 3. **Account type.** Personal repo or organization repo. This decides Copilot auth (step 3).
 4. **Stack.** Find the language and how the app serves static files: `Dockerfile`, `package.json`, `pyproject.toml`/`requirements.txt`, `go.mod`, `pom.xml`/`build.gradle`, `*.csproj`, `composer.json`, `nginx.conf`. Taglore works with any of them; the stack only decides where `output-dir` points and how the JSON is served (step 4).
 5. **Where the notes should go.** Ask only if unclear: GitHub Release only (default), into the Docker image, as an artifact, and/or S3.
@@ -56,6 +56,8 @@ Pick the extra inputs from what the user needs:
 | Different language or voice | `language`, `tone`, `audience`, `product-name`, `instructions` |
 | Image scan (OS packages) | Second step after `docker build`: `notes-from` + `security-image: <image>:{version}` |
 | Security notes + SBOM per release | `security-scan: true` (Syft + Grype, installed automatically); add `security-fail-on: high` to block releases that introduce high/critical findings |
+| Repository uses Release Please (`release-please-config.json`, `.release-please-manifest.json` or `googleapis/release-please-action`) | Add Taglore as steps in the **same job** after Release Please, gated on `steps.release.outputs.release_created`, with `to: ${{ steps.release.outputs.tag_name }}` and `release-body: prepend`. Never a separate tag-triggered workflow: tags made with `GITHUB_TOKEN` don't trigger it. Copy `examples/workflows/release-please.yml` |
+| Monorepo (several apps in one repo) | `paths: apps/<app>` (plus shared packages it ships) and `tag-prefix: <app>-v`; with Release Please manifests use `outputs['apps/<app>--tag_name']`. Copy `examples/workflows/monorepo.yml` |
 | Human review before publishing | Two jobs: `preview` (`evidence: strict`, `publish-github-release: false`, `output-dir`, `preview-file`) and `publish` in an Environment with required reviewers using `notes-from`; copy `examples/workflows/review.yml` |
 | Changelog page | Serve `history.json` (written by default) and add `<taglore-changelog src="/release-notes/history.json">` or React `<Changelog />` |
 | Keep paths away from the AI | `exclude: "infra/**, **/*.sql"` (lockfiles, build output, images, `.env*`, keys are always excluded) |

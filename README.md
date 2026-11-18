@@ -263,6 +263,67 @@ on:
           upload-artifact: true
 ```
 
+### With Release Please
+
+[Release Please](https://github.com/googleapis/release-please) decides the version and opens the release PR; Taglore writes what users read. They split the work cleanly:
+
+| | Release Please | Taglore |
+|---|---|---|
+| Version bump, release PR, tag | ✅ | |
+| Developer changelog (Conventional Commits) | ✅ | |
+| User-facing notes, evidence, security, SBOM | | ✅ |
+| `latest.json` / `history.json`, What's New, changelog page | | ✅ |
+
+Run Taglore **in the same job**, after Release Please. A tag that Release Please creates with the default `GITHUB_TOKEN` does not start other workflows, so a separate `on: push: tags` workflow would never run. With `release-body: prepend`, Taglore's notes go above Release Please's changelog and its release title is kept; a re-run replaces only Taglore's part.
+
+```yaml
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - id: release
+        uses: googleapis/release-please-action@v4
+        with:
+          release-type: node
+
+      - uses: actions/checkout@v6
+        if: ${{ steps.release.outputs.release_created }}
+        with:
+          fetch-depth: 0
+
+      - uses: d2k-klin/taglore@v1
+        if: ${{ steps.release.outputs.release_created }}
+        with:
+          to: ${{ steps.release.outputs.tag_name }}
+          release-body: prepend           # keep Release Please's changelog below
+          copilot-token: ${{ secrets.COPILOT_TOKEN }}
+          output-dir: release-notes
+```
+
+Full workflow with the Docker build: [examples/workflows/release-please.yml](examples/workflows/release-please.yml).
+
+### Monorepos
+
+`paths` limits a release to part of the repository: only commits that touch those folders or files count, and the diff, the evidence and the security scan see nothing else. Pair it with `tag-prefix` for per-app tags such as `web-v1.2.0`, which is also the format of Release Please components.
+
+```yaml
+      - uses: d2k-klin/taglore@v1
+        with:
+          tag-prefix: web-v
+          paths: apps/web, packages/ui      # the app and what it ships with
+          product-name: Acme Web
+```
+
+A shared lockfile at the repository root is not scanned unless you list it (`paths: apps/web, package-lock.json`). With Release Please manifests, use its per-path outputs: `steps.release.outputs['apps/web--release_created']` and `steps.release.outputs['apps/web--tag_name']`. See [examples/workflows/monorepo.yml](examples/workflows/monorepo.yml).
+
 ### Review majors before they go out
 
 Use `release-draft: true` for major tags, or run the publishing job in a GitHub Environment with required reviewers. See [examples/workflows/major-review.yml](examples/workflows/major-review.yml).
@@ -276,7 +337,8 @@ More in [examples/workflows](examples/workflows).
 | `to` | triggering tag | Release tag |
 | `from` | | Base ref; switches `compare` to `explicit` |
 | `compare` | `auto` | `auto`, `previous-tag`, `previous-minor`, `previous-major`, `explicit` |
-| `tag-prefix` | `v` | Tag prefix, e.g. `app-v` for monorepos |
+| `tag-prefix` | `v` | Tag prefix, e.g. `web-v` for per-app tags like `web-v1.2.0` |
+| `paths` | | Monorepos: limit commits, diff, evidence and security scan to these folders/files |
 | `ai-provider` | `copilot` | `copilot`, `github-models`, `none` |
 | `model` | provider default | Model id |
 | `copilot-token` | | Fine-grained PAT with Copilot Requests (personal repos) |
@@ -295,6 +357,7 @@ More in [examples/workflows](examples/workflows).
 | `history-limit` | `20` | Releases kept in `history.json`; `0` turns it off |
 | `history-file` | | Local `history.json` to continue from instead of GitHub Releases |
 | `publish-github-release` | `true` | Create/update the GitHub Release and attach `taglore.json` |
+| `release-body` | `replace` | For a release that already has a body (e.g. Release Please): `prepend` or `append` Taglore's notes and keep its title |
 | `release-draft` | `false` | Create new releases as drafts |
 | `include-commits` | `true` | Collapsible commit list in the Markdown |
 | `output-dir` | | Write `latest.json`, `release.json`, `RELEASE_NOTES.md` here |

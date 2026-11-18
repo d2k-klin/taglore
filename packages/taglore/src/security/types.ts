@@ -77,8 +77,14 @@ export const SecurityReportSchema = z.object({
   newLicenses: z.array(z.string()),
   /** What was scanned. */
   sources: z
-    .object({ repository: z.boolean(), image: z.string().nullable(), previousImage: z.string().nullable() })
-    .default({ repository: true, image: null, previousImage: null }),
+    .object({
+      repository: z.boolean(),
+      image: z.string().nullable(),
+      previousImage: z.string().nullable(),
+      /** Repository paths that were scanned; empty means the whole repository. */
+      paths: z.array(z.string()).default([]),
+    })
+    .default({ repository: true, image: null, previousImage: null, paths: [] }),
   /** Limits of this report the reader should know about (e.g. previous image missing). */
   warnings: z.array(z.string()).default([]),
 });

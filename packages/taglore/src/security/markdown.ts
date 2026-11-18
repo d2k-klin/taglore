@@ -81,7 +81,8 @@ export function renderSecuritySection(r: SecurityReport, maxItems = 15): string 
   }
 
   for (const w of r.warnings) md += `> ⚠️ ${cell(w)}\n\n`;
-  const what = r.sources.image ? `the repository's lockfiles and the image ${cell(r.sources.image)}` : "the repository's lockfiles and manifests";
+  const repoPart = r.sources.paths.length ? `the lockfiles and manifests in ${r.sources.paths.map(cell).join(", ")}` : "the repository's lockfiles and manifests";
+  const what = r.sources.image ? `${repoPart} and the image ${cell(r.sources.image)}` : repoPart;
   const files = r.sources.image ? "security.json, sbom.cdx.json and sbom-image.cdx.json" : "security.json and sbom.cdx.json";
   md += `<sub>Scanned ${what} with Syft ${cell(r.tools.syft ?? "?")} and Grype ${cell(r.tools.grype ?? "?")}; both versions were checked against the same vulnerability database. The full report and the CycloneDX SBOMs are attached as ${files}.</sub>\n\n`;
   return md;

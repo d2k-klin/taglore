@@ -18,9 +18,12 @@ inputs:
     required: false
     default: auto
   tag-prefix:
-    description: Tag prefix.
+    description: Tag prefix, e.g. web-v for per-app tags like web-v1.2.0 (Release Please components).
     required: false
     default: v
+  paths:
+    description: Monorepos. Limit the release to these folders or files, comma or newline separated (e.g. apps/web, packages/ui). Commits, diff, evidence and the security scan only see them. Default is the whole repository.
+    required: false
 
   # AI
   ai-provider:
@@ -125,6 +128,10 @@ inputs:
     description: Create or update the GitHub Release for the tag and attach taglore.json.
     required: false
     default: "true"
+  release-body:
+    description: "For a GitHub Release that already has a body, e.g. created by Release Please. replace (default): Taglore writes title and body. prepend / append: keep the existing title and body, put Taglore's notes before / after them. Re-runs replace only Taglore's part."
+    required: false
+    default: replace
   release-draft:
     description: Create new releases as drafts (useful for reviewing major releases).
     required: false

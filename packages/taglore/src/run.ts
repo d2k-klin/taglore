@@ -1,4 +1,4 @@
-import { collectChanges, DEFAULT_EXCLUDES, type ChangeSet } from "./collect.js";
+import { collectChanges, DEFAULT_EXCLUDES, normalizePaths, type ChangeSet } from "./collect.js";
 import { type EvidenceMode, type EvidenceReport, renderEvidenceMarkdown, skippedEvidence, verifyEvidence } from "./evidence.js";
 import { fallbackNotes } from "./fallback.js";
 import { buildHistory, HISTORY_ASSET_NAME } from "./history.js";
@@ -11,7 +11,7 @@ import { copilotProvider } from "./providers/copilot.js";
 import { githubModelsProvider } from "./providers/github-models.js";
 import type { AiProvider, ProviderName } from "./providers/types.js";
 import { type OutFile, writeOutputDir } from "./publish/files.js";
-import { GitHubReleases, parseRepo, RELEASE_ASSET_NAME } from "./publish/github-release.js";
+import { GitHubReleases, parseRepo, RELEASE_ASSET_NAME, type ReleaseBodyMode } from "./publish/github-release.js";
 import { uploadToS3 } from "./publish/s3.js";
 import { sanitizeNotes } from "./sanitize.js";
 import { assertFailOn, describeCounts, gateViolations } from "./security/diff.js";
@@ -86,6 +86,17 @@ export interface TagloreOptions {
    * Typical use: notes before docker build (baked into the image), security with the image scan after it.
    */
   notesFrom?: string;
+  /**
+   * Monorepos: limit the release to these folders/files (commits, diff, evidence, security scan).
+   * Pair with tagPrefix for per-app tags such as web-v1.2.0. Empty: the whole repository.
+   */
+  paths?: string[];
+  /**
+   * How to treat a GitHub Release that already has a body (e.g. Release Please's changelog):
+   * replace (default) writes Taglore's notes and title; prepend/append keep the existing title and
+   * body and put Taglore's notes before/after it. Re-runs replace only Taglore's part.
+   */
+  releaseBody?: ReleaseBodyMode;
   grypeCommand?: string;
 
   /**
@@ -167,6 +178,7 @@ async function aiNotes(provider: AiProvider, changes: ChangeSet, o: TagloreOptio
     tone: o.tone ?? "friendly and concise",
     audience: o.audience ?? "end users of the application",
     instructions: o.instructions,
+    paths: normalizePaths(o.paths),
     maxContextBytes: maxContextKb * 1024,
   });
   log.info(`Asking ${provider.name} (${Math.round(Buffer.byteLength(prompt) / 1024)} KB prompt)...`);
@@ -183,6 +195,11 @@ export async function runTaglore(opts: TagloreOptions = {}): Promise<TagloreResu
   const compare = o.compare ?? "auto";
   const announceOn = o.announceOn ?? ["major", "minor"];
   const aiFor = o.aiFor ?? ["major", "minor"];
+  const paths = normalizePaths(o.paths);
+  const releaseBody = o.releaseBody ?? "replace";
+  if (!["replace", "prepend", "append"].includes(releaseBody)) {
+    throw new Error(`Invalid release-body "${releaseBody}". Use replace, prepend or append.`);
+  }
   const repository = o.repository ?? process.env.GITHUB_REPOSITORY;
   const serverUrl = o.githubServerUrl ?? process.env.GITHUB_SERVER_URL ?? "https://github.com";
 
@@ -219,9 +236,12 @@ export async function runTaglore(opts: TagloreOptions = {}): Promise<TagloreResu
     to,
     cwd,
     excludes: [...DEFAULT_EXCLUDES, ...(o.excludes ?? [])],
+    paths,
     maxDiffBytes: maxDiffKb * 1024,
   });
-  log.info(`${changes.commits.length} commits, ${changes.files.length} files changed${changes.diffTruncated ? " (diff truncated)" : ""}`);
+  log.info(
+    `${changes.commits.length} commits, ${changes.files.length} files changed${paths.length ? ` in ${paths.join(", ")}` : ""}${changes.diffTruncated ? " (diff truncated)" : ""}`,
+  );
 
   // 2b. Security scan (deterministic, never AI). Runs before the AI call so a failing gate costs nothing.
   let security: SecurityReport | null = null;
@@ -237,6 +257,7 @@ export async function runTaglore(opts: TagloreOptions = {}): Promise<TagloreResu
       grype: o.grypeCommand,
       excludes: o.securityExcludes,
       image: o.securityImage,
+      paths,
       log,
     });
     imageSbom = scan.imageSbom;
@@ -385,6 +406,7 @@ export async function runTaglore(opts: TagloreOptions = {}): Promise<TagloreResu
         prerelease: releaseType === "prerelease",
         draft: o.releaseDraft ?? false,
         makeLatest: releaseType !== "prerelease",
+        bodyMode: releaseBody,
       });
       await releases.uploadAsset(rel, RELEASE_ASSET_NAME, JSON.stringify(notes, null, 2) + "\n");
       for (const f of files.filter((f) => ["security.json", "sbom.cdx.json", "sbom-image.cdx.json"].includes(f.name))) {

@@ -10,6 +10,8 @@ export interface PromptOptions {
   instructions?: string;
   /** Budget for the whole change context (commits, file list, stat and diff), in bytes. */
   maxContextBytes?: number;
+  /** Monorepos: the folders/files this release covers. The material below is already limited to them. */
+  paths?: string[];
 }
 
 /** Cuts text to a byte budget at a line boundary and says so. */
@@ -63,7 +65,7 @@ export function buildPrompt(changes: ChangeSet, o: PromptOptions): string {
   return `You write release notes for ${o.productName}.
 
 TASK
-Summarize the changes from ${o.previousVersion ?? "the first commit"} to ${o.version} for ${o.audience}.
+Summarize the changes from ${o.previousVersion ?? "the first commit"} to ${o.version} for ${o.audience}.${o.paths?.length ? `\nThis release covers only this part of the repository: ${o.paths.join(", ")}. Describe nothing outside it.` : ""}
 Write in ${o.language}. Tone: ${o.tone}.
 
 RULES

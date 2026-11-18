@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -136,7 +136,7 @@ describe("runTaglore with security scanning", () => {
     const out = join(repo, "..", `out-img-${Date.now()}`);
     const r = await runTaglore({ ...opts(), to: "v1.1.0", outputDir: out, securityImage: "ghcr.io/acme/app:{version}" });
     const sec = r.security!;
-    expect(sec.sources).toEqual({ repository: true, image: "ghcr.io/acme/app:v1.1.0", previousImage: "ghcr.io/acme/app:v1.0.0" });
+    expect(sec.sources).toEqual({ repository: true, image: "ghcr.io/acme/app:v1.1.0", previousImage: "ghcr.io/acme/app:v1.0.0", paths: [] });
     expect(sec.fixed.map((v) => v.id)).toContain("CVE-2022-0778"); // openssl fixed in the image
     expect(sec.introduced.map((v) => v.id).sort()).toEqual(["CVE-2023-45853", "GHSA-4w2v-q235-vp99"]);
     expect(sec.components.changed.map((c) => c.name)).toContain("openssl");
@@ -188,6 +188,36 @@ describe("runTaglore with security scanning", () => {
     expect(r.notes.highlights.map((h) => h.title)).toEqual(first.notes.highlights.map((h) => h.title)); // nothing deleted
     expect(r.evidenceMarkdown).toContain("Not checked again");
     rmSync(out, { recursive: true, force: true });
+  });
+
+  it("scans only the given paths in a monorepo", async () => {
+    const mono = mkdtempSync(join(tmpdir(), "taglore-sec-mono-"));
+    const g = (args: string[]) => execFileSync("git", args, { cwd: mono, stdio: "ignore" });
+    g(["init", "-q", "-b", "main"]);
+    g(["config", "user.email", "t@example.com"]);
+    g(["config", "user.name", "t"]);
+    const put = (dir: string, doc: unknown) => {
+      mkdirSync(join(mono, dir), { recursive: true });
+      writeFileSync(join(mono, dir, ".fixture-sbom.json"), JSON.stringify(doc));
+    };
+    // web: vulnerable lodash, fixed in v1.1.0. api: an unrelated critical finding that must not show up.
+    put("apps/web", { ...sbomBase, "x-grype": grypeBase });
+    put("apps/api", { ...sbomHead, "x-grype": grypeHead });
+    g(["add", "."]);
+    g(["commit", "-qm", "feat: first"]);
+    g(["tag", "v1.0.0"]);
+    put("apps/web", { components: sbomHead.components.filter((c) => c.name !== "@scope/http"), "x-grype": { matches: grypeHead.matches.filter((m) => m.artifact.name !== "@scope/http") } });
+    g(["add", "."]);
+    g(["commit", "-qm", "fix: upgrade lodash"]);
+    g(["tag", "v1.1.0"]);
+    const r = await runTaglore({ ...opts(), cwd: mono, to: "v1.1.0", dryRun: true, paths: ["apps/web", "apps/new-service"] });
+    const sec = r.security!;
+    expect(sec.sources.paths).toEqual(["apps/web", "apps/new-service"]);
+    expect(sec.fixed.map((v) => v.package)).toEqual(["lodash", "lodash"]);
+    expect(sec.open.map((v) => v.package)).not.toContain("@scope/http"); // apps/api is out of scope
+    expect(sec.introduced).toEqual([]);
+    expect(r.markdown).toContain("the lockfiles and manifests in apps/web, apps/new-service");
+    rmSync(mono, { recursive: true, force: true });
   });
 
   it("explains how to install missing scanners", async () => {
