@@ -85,6 +85,15 @@ async function main() {
     previewFile: input("preview-file"),
     historyLimit: input("history-limit") ? Number(input("history-limit")) : undefined,
     historyFile: input("history-file"),
+    historyBranch: input("history-branch"),
+    historyBranchDir: input("history-branch-dir"),
+    unreleased: bool("unreleased", false),
+    unreleasedLabel: input("unreleased-label"),
+    factsFile: input("facts-file"),
+    factsCommand: input("facts-command"),
+    forbiddenTerms: list<string>("forbidden-terms"),
+    styleCheck: input("style-check") as "warn" | "strict" | undefined,
+    focusPaths: list<string>("focus-paths"),
     cwd: input("working-directory") ?? process.cwd(),
     to: input("to"),
     from,
@@ -141,6 +150,8 @@ async function main() {
 
   core.setOutput("version", result.version);
   core.setOutput("backfilled", result.backfilled.join(","));
+  core.setOutput("context-truncated", String(result.context?.truncated ?? false));
+  core.setOutput("style-issues", String(result.styleIssues.length));
   core.setOutput("previous-version", result.previousVersion ?? "");
   core.setOutput("release-type", result.releaseType);
   core.setOutput("announce", String(result.announce));

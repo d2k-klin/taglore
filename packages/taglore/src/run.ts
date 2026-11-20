@@ -6,19 +6,22 @@ import { renderPreview } from "./preview.js";
 import { git, isShallow, listTags, refDate, resolveRef } from "./git.js";
 import { renderMarkdown } from "./markdown.js";
 import { TAGLORE_VERSION } from "./meta.js";
-import { buildPrompt, extractJson } from "./prompt.js";
+import { buildPromptWithReport, type ContextReport, extractJson } from "./prompt.js";
+import { fillPlaceholders, loadFacts, type ReleaseVars } from "./facts.js";
+import { compileTerms, evaluateAnswer, repairPrompt, styleIssues } from "./repair.js";
 import { copilotProvider } from "./providers/copilot.js";
 import { githubModelsProvider } from "./providers/github-models.js";
 import type { AiProvider, ProviderName } from "./providers/types.js";
 import { type OutFile, writeOutputDir } from "./publish/files.js";
-import { GitHubReleases, parseRepo, RELEASE_ASSET_NAME, type ReleaseBodyMode } from "./publish/github-release.js";
+import { GitHubReleases, parseRepo, RELEASE_ASSET_NAME, type ReleaseAsset, type ReleaseBodyMode } from "./publish/github-release.js";
 import { uploadToS3 } from "./publish/s3.js";
 import { sanitizeNotes } from "./sanitize.js";
 import { assertFailOn, describeCounts, gateViolations } from "./security/diff.js";
 import { renderSecuritySection } from "./security/markdown.js";
 import { runSecurityScan } from "./security/scan.js";
 import type { FailOn, SecurityReport } from "./security/types.js";
-import { AiNotesSchema, type AiNotes, type History, type ReleaseNotes, ReleaseNotesSchema, type ReleaseType, SCHEMA_VERSION } from "./schema.js";
+import { AiNotesSchema, type AiNotes, type History, HistorySchema, type ReleaseNotes, ReleaseNotesSchema, type ReleaseType, SCHEMA_VERSION } from "./schema.js";
+import { BranchStore } from "./publish/branch-store.js";
 import { announcementBase, type CompareMode, compareSemver, parseSemver, releaseTypeOf, resolveBase, type SemVer, shouldAnnounce, stableTags } from "./version.js";
 
 export interface Logger {
@@ -123,8 +126,34 @@ export interface TagloreOptions {
    * Existing release text is kept (prepend) unless releaseBody is set. Max 50. Default 0.
    */
   backfill?: number;
+  /**
+   * Keep history.json and latest.json in this branch (created on first use, written through the
+   * GitHub API). For immutable releases, or projects without GitHub Releases. Needs contents: write.
+   */
+  historyBranch?: string;
+  /** Folder inside historyBranch. Default: none, or the tag prefix when it isn't "v" (monorepos). */
+  historyBranchDir?: string;
+  /** Facts for the AI per release: a file path with {version}/{from}/{to} placeholders. Missing file = no facts. */
+  factsFile?: string;
+  /** Facts for the AI per release: a shell command; gets TAGLORE_VERSION, TAGLORE_FROM, TAGLORE_TO, TAGLORE_RELEASE_TYPE. */
+  factsCommand?: string;
+  /** Words or /regex/ that must not appear in user-facing text (environment names, codenames...). */
+  forbiddenTerms?: string[];
+  /** What happens when the final notes still break a style rule: warn (default) or strict (fail, nothing published). */
+  styleCheck?: "warn" | "strict";
+  /** Globs whose diffs go first when a big release doesn't fit the context budget. */
+  focusPaths?: string[];
+  /**
+   * Notes for the changes since the last release that aren't tagged yet (to defaults to HEAD).
+   * No GitHub Release, no stored history; history.json gets the entry on top.
+   */
+  unreleased?: boolean;
+  /** Version label for unreleased notes. Default: "Unreleased". */
+  unreleasedLabel?: string;
   /** @internal Set for the per-tag runs of a backfill. */
   backfillRun?: boolean;
+  /** @internal Notes already known to the caller (stored history, earlier backfill runs). */
+  knownNotes?: ReleaseNotes[];
   /** @internal Extra Octokit options for the GitHub Releases client (tests). */
   octokitOptions?: Record<string, unknown>;
 }
@@ -152,6 +181,10 @@ export interface TagloreResult {
   backfilled: string[];
   /** Review table for the evidence, as Markdown. */
   evidenceMarkdown: string;
+  /** What part of the change the AI saw (null when no AI was asked). */
+  context: ContextReport | null;
+  /** Style rule violations left in the final notes (style-check: warn). */
+  styleIssues: string[];
   history: History | null;
 }
 
@@ -188,22 +221,66 @@ function makeProvider(o: TagloreOptions): AiProvider | null {
   }
 }
 
-async function aiNotes(provider: AiProvider, changes: ChangeSet, o: TagloreOptions, version: string, prev: string | null, log: Logger, maxContextKb: number) {
-  const prompt = buildPrompt(changes, {
+async function aiNotes(
+  provider: AiProvider,
+  changes: ChangeSet,
+  o: TagloreOptions,
+  vars: ReleaseVars,
+  log: Logger,
+  maxContextKb: number,
+  facts: string | null,
+) {
+  const { prompt, context } = buildPromptWithReport(changes, {
     productName: o.productName ?? (o.repository?.split("/")[1] ?? "this application"),
-    version,
-    previousVersion: prev,
+    version: vars.version,
+    previousVersion: vars.from,
     language: o.language ?? "English",
     tone: o.tone ?? "friendly and concise",
     audience: o.audience ?? "end users of the application",
-    instructions: o.instructions,
+    instructions: o.instructions ? fillPlaceholders(o.instructions, vars) : undefined,
     paths: normalizePaths(o.paths),
     maxContextBytes: maxContextKb * 1024,
+    facts,
   });
+  logContext(context, log);
+  const terms = compileTerms(o.forbiddenTerms);
   log.info(`Asking ${provider.name} (${Math.round(Buffer.byteLength(prompt) / 1024)} KB prompt)...`);
-  const res = await provider.generate(prompt);
-  const parsed = AiNotesSchema.parse(extractJson(res.text));
-  return { notes: parsed, model: res.model };
+  const first = await provider.generate(prompt);
+  let ev = evaluateAnswer(first.text, extractJson, changes.commits, terms);
+  if (!ev.issues.length && ev.notes) return { notes: ev.notes, model: first.model, context };
+  // Length is the only problem: shorten in code, no second request.
+  if (ev.trimmed && !styleIssues(ev.trimmed, changes.commits, terms).length) {
+    log.warn(`Shortened the AI answer to fit the limits: ${ev.issues.join("; ")}`);
+    return { notes: ev.trimmed, model: first.model, context };
+  }
+  log.warn(`The AI answer was rejected (${ev.issues.slice(0, 5).join("; ")}). Asking once more with the reasons.`);
+  const second = await provider.generate(repairPrompt(prompt, first.text, ev.issues));
+  ev = evaluateAnswer(second.text, extractJson, changes.commits, terms);
+  if (ev.notes) {
+    if (!ev.issues.length) log.info("The corrected answer passed.");
+    // Remaining style issues are reported by the final style check (warn or strict).
+    return { notes: ev.notes, model: second.model, context };
+  }
+  if (ev.trimmed) {
+    log.warn(`Shortened the corrected AI answer to fit the limits: ${ev.issues.join("; ")}`);
+    return { notes: ev.trimmed, model: second.model, context };
+  }
+  throw new Error(`the answer was still invalid after a retry: ${ev.issues.slice(0, 5).join("; ")}`);
+}
+
+function logContext(c: ContextReport, log: Logger) {
+  if (!c.truncated) {
+    log.info(`AI context: all ${c.commits.total} commits and ${c.files.diffFull} file diffs fit in ${c.budgetKb} KB.`);
+    return;
+  }
+  const parts = [`${c.commits.shown}/${c.commits.total} commits`, `${c.files.diffFull}/${c.files.total} file diffs in full`];
+  if (c.files.diffPartial.length) parts.push(`${c.files.diffPartial.length} cut short`);
+  if (c.files.diffOmitted.length) parts.push(`${c.files.diffOmitted.length} left out`);
+  log.warn(
+    `AI context: the release is larger than max-diff-kb (${c.budgetKb} KB); the AI saw ${parts.join(", ")}. User-facing code goes first; tests, CI and docs last.` +
+      (c.files.diffOmitted.length ? ` Left out: ${c.files.diffOmitted.slice(0, 15).join(", ")}${c.files.diffOmitted.length > 15 ? ", ..." : ""}.` : "") +
+      " Raise max-diff-kb or set focus-paths to change that.",
+  );
 }
 
 export type PatchNotesMode = "commits" | "ai" | "announce";
@@ -239,14 +316,24 @@ export async function runTaglore(opts: TagloreOptions = {}): Promise<TagloreResu
   }
 
   // 1. Versions
-  const to = o.to ?? (await currentTag(cwd));
-  await resolveRef(to, cwd);
+  const unreleased = !!o.unreleased;
+  const to = o.to ?? (unreleased ? "HEAD" : await currentTag(cwd));
+  const toSha = await resolveRef(to, cwd);
   const tags = await listTags(cwd);
-  const current = parseSemver(to, prefix);
+  let current = parseSemver(to, prefix);
 
   let from: string | null;
   let releaseType: ReleaseType;
-  if (compare === "explicit") {
+  if (unreleased) {
+    // Changes since the newest release that is part of this branch.
+    if (o.from) await resolveRef(o.from, cwd);
+    from = o.from ?? (await latestMergedTag(to, prefix, cwd));
+    releaseType = "unreleased";
+    // A version just above the base, so earlier releases (history, announcement) resolve as for a patch.
+    const base = from ? parseSemver(from, prefix) : null;
+    current = base ? { ...base, patch: base.patch + 1, prerelease: null, raw: o.unreleasedLabel ?? "Unreleased" } : null;
+    if (!aiFor.includes("unreleased")) aiFor.push("unreleased");
+  } else if (compare === "explicit") {
     if (!o.from) throw new Error('compare: "explicit" needs "from".');
     await resolveRef(o.from, cwd);
     from = o.from;
@@ -257,16 +344,33 @@ export async function runTaglore(opts: TagloreOptions = {}): Promise<TagloreResu
     releaseType = releaseTypeOf(current);
   }
   const announce = shouldAnnounce(releaseType, announceOn);
-  log.info(`Taglore ${TAGLORE_VERSION}: ${from ?? "(first commit)"} -> ${to} [${releaseType}, announce=${announce}]`);
+  const version = unreleased ? (o.unreleasedLabel ?? "Unreleased") : to;
+  const vars: ReleaseVars = { version, from, to, releaseType };
+  log.info(`Taglore ${TAGLORE_VERSION}: ${from ?? "(first commit)"} -> ${to}${unreleased ? ` as "${version}"` : ""} [${releaseType}, announce=${announce}]`);
+
+  // GitHub access and the stored history (history-file or history-branch), read once.
+  const token = o.githubToken ?? process.env.GITHUB_TOKEN;
+  const releases = repository && token ? new GitHubReleases(token, parseRepo(repository), o.githubApiUrl, o.octokitOptions) : null;
+  const branchDir = (o.historyBranchDir ?? (prefix === "v" ? "" : prefix.replace(/[^A-Za-z0-9._-]/g, "_"))).replace(/^\/+|\/+$/g, "");
+  const branchPath = (name: string) => (branchDir ? `${branchDir}/${name}` : name);
+  let store: BranchStore | null = null;
+  if (o.historyBranch && !o.backfillRun) {
+    if (!repository || !token) throw new Error("history-branch needs a GitHub token and repository (contents: write).");
+    store = new BranchStore(token, parseRepo(repository), o.historyBranch, o.githubApiUrl, o.octokitOptions);
+  }
+  const stored = o.backfillRun ? null : await loadStoredHistory(o, cwd, store, branchPath("history.json"), log);
+  const known = new Map<string, ReleaseNotes>();
+  for (const n of [...(stored ?? []), ...(o.knownNotes ?? [])]) known.set(n.version, n);
 
   // 1b. Onboarding: earlier tags first, oldest first, so patches find their minor's notes.
   const backfilledNotes: ReleaseNotes[] = [];
   const backfilled: string[] = [];
   if (backfill > 0) {
     if (compare === "explicit" || !current) throw new Error("backfill needs SemVer tags; it cannot be combined with compare: explicit.");
-    const b = await runBackfill(o, current, tags, prefix, backfill, repository, log);
+    const b = await runBackfill(o, current, tags, prefix, backfill, releases, known, log);
     backfilledNotes.push(...b.notes);
     backfilled.push(...b.written);
+    for (const n of b.notes) known.set(n.version, n);
   }
 
   // 2. Changes
@@ -284,6 +388,7 @@ export async function runTaglore(opts: TagloreOptions = {}): Promise<TagloreResu
     excludes: [...DEFAULT_EXCLUDES, ...(o.excludes ?? [])],
     paths,
     maxDiffBytes: maxDiffKb * 1024,
+    focusPaths: o.focusPaths,
   });
   log.info(
     `${changes.commits.length} commits, ${changes.files.length} files changed${paths.length ? ` in ${paths.join(", ")}` : ""}${changes.diffTruncated ? " (diff truncated)" : ""}`,
@@ -321,9 +426,10 @@ export async function runTaglore(opts: TagloreOptions = {}): Promise<TagloreResu
 
   // 3. Notes (AI or fallback)
   let body: AiNotes;
+  let context: ContextReport | null = null;
   let providerName = "fallback";
   let model: string | null = null;
-  const reused = o.notesFrom ? await loadNotesFrom(o.notesFrom, to, cwd) : null;
+  const reused = o.notesFrom ? await loadNotesFrom(o.notesFrom, version, cwd) : null;
   if (reused) {
     log.info(`Reusing the notes from ${o.notesFrom} (written by ${reused.generator.provider}).`);
     body = AiNotesSchema.parse(reused);
@@ -331,18 +437,31 @@ export async function runTaglore(opts: TagloreOptions = {}): Promise<TagloreResu
     model = reused.generator.model;
   } else if (provider && aiFor.includes(releaseType) && changes.commits.length > 0) {
     try {
-      const r = await aiNotes(provider, changes, o, to, from, log, maxDiffKb);
+      const facts = await loadFacts({ factsFile: o.factsFile, factsCommand: o.factsCommand, cwd }, vars, log);
+      const r = await aiNotes(provider, changes, o, vars, log, maxDiffKb, facts);
       body = r.notes;
       providerName = provider.name;
       model = r.model;
+      context = r.context;
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
+      // Missing facts would mean wrong notes, not merely plainer ones: stop instead of falling back.
+      if (/^facts-command/.test(msg)) throw e;
       if ((o.onAiFailure ?? "fallback") === "fail") throw new Error(`AI generation failed: ${msg}`);
       log.warn(`AI generation failed, using commit-based notes instead. ${msg}`);
       body = fallbackNotes(changes.commits, to, { firstRelease: from === null });
     }
   } else {
     body = fallbackNotes(changes.commits, to, { firstRelease: from === null });
+  }
+
+  // 3a. Style rules, checked in code (the AI step already retried once with the reasons).
+  const styleCheck = o.styleCheck ?? "warn";
+  if (styleCheck !== "warn" && styleCheck !== "strict") throw new Error(`Invalid style-check "${styleCheck}". Use warn or strict.`);
+  const remainingStyle = reused ? [] : styleIssues(body, changes.commits, compileTerms(o.forbiddenTerms));
+  if (remainingStyle.length) {
+    if (styleCheck === "strict") throw new Error(`Style check failed, nothing was published: ${remainingStyle.join("; ")}`);
+    log.warn(`Style check: ${remainingStyle.join("; ")}`);
   }
 
   // 3b. Evidence: every statement must point at real commits in this range.
@@ -368,7 +487,7 @@ export async function runTaglore(opts: TagloreOptions = {}): Promise<TagloreResu
   const notes = ReleaseNotesSchema.parse({
     ...checked.notes,
     schemaVersion: SCHEMA_VERSION,
-    version: to,
+    version,
     previousVersion: from,
     releaseType,
     announce,
@@ -378,14 +497,9 @@ export async function runTaglore(opts: TagloreOptions = {}): Promise<TagloreResu
   });
 
   // 4. Announcement for apps (latest.json)
-  const releases =
-    repository && (o.githubToken ?? process.env.GITHUB_TOKEN)
-      ? new GitHubReleases((o.githubToken ?? process.env.GITHUB_TOKEN)!, parseRepo(repository), o.githubApiUrl, o.octokitOptions)
-      : null;
-
   let latest: ReleaseNotes | null = announce ? notes : null;
   if (!announce) {
-    latest = await loadBaseline(o, current, tags, prefix, releases, log);
+    latest = await loadBaseline(o, current, tags, prefix, releases, known, log);
     // Nothing earlier to show (Taglore was adopted on a patch, or no token to fetch it):
     // ship this release's notes, so the app's "What's new" menu still has content.
     // announce stays false, so nobody gets a popup for it.
@@ -396,7 +510,7 @@ export async function runTaglore(opts: TagloreOptions = {}): Promise<TagloreResu
   }
 
   // 5. Render
-  const compareUrl = repository && from ? `${serverUrl}/${repository}/compare/${from}...${to}` : null;
+  const compareUrl = repository && from ? `${serverUrl}/${repository}/compare/${from}...${unreleased ? toSha : to}` : null;
   const markdown = renderMarkdown(notes, {
     commits: changes.commits,
     compareUrl,
@@ -424,7 +538,7 @@ export async function runTaglore(opts: TagloreOptions = {}): Promise<TagloreResu
   const historyLimit = o.historyLimit ?? 20;
   let history: History | null = null;
   if (historyLimit > 0 && releaseType !== "prerelease") {
-    history = await buildHistory({ notes, current, tags, prefix, limit: historyLimit, historyFile: o.historyFile, cwd, releases, log, extra: backfilledNotes });
+    history = await buildHistory({ notes, current, tags, prefix, limit: historyLimit, stored, cwd, releases, log, extra: backfilledNotes });
     files.push({ name: "history.json", content: JSON.stringify(history, null, 2) + "\n", contentType: "application/json", cacheControl: "public, max-age=60" });
   }
 
@@ -434,7 +548,7 @@ export async function runTaglore(opts: TagloreOptions = {}): Promise<TagloreResu
     const { dirname, resolve } = await import("node:path");
     const target = resolve(cwd, o.previewFile);
     await mkdir(dirname(target), { recursive: true });
-    await writeFile(target, renderPreview(notes, evidence, { repositoryUrl: repository ? `${serverUrl}/${repository}` : null }), "utf8");
+    await writeFile(target, renderPreview(notes, evidence, { repositoryUrl: repository ? `${serverUrl}/${repository}` : null, context, styleIssues: remainingStyle }), "utf8");
     log.info(`Preview written to ${o.previewFile}`);
   }
 
@@ -450,9 +564,16 @@ export async function runTaglore(opts: TagloreOptions = {}): Promise<TagloreResu
       writtenFiles = await writeOutputDir(o.outputDir, files, cwd);
       log.info(`Wrote ${writtenFiles.length} files to ${o.outputDir}`);
     }
-    if (o.publishGithubRelease ?? true) {
+    if (unreleased && (o.publishGithubRelease ?? true)) {
+      log.info("Unreleased notes: no GitHub Release is created.");
+    } else if (o.publishGithubRelease ?? true) {
       if (!releases) throw new Error("Publishing a GitHub Release needs a token and repository (or set publish-github-release: false).");
-      const rel = await releases.upsert({
+      const assets: ReleaseAsset[] = [{ name: RELEASE_ASSET_NAME, content: JSON.stringify(notes, null, 2) + "\n", contentType: "application/json" }];
+      for (const f of files.filter((f) => ["security.json", "sbom.cdx.json", "sbom-image.cdx.json"].includes(f.name))) {
+        assets.push({ name: f.name, content: f.content, contentType: f.contentType });
+      }
+      if (history) assets.push({ name: HISTORY_ASSET_NAME, content: JSON.stringify(history) + "\n", contentType: "application/json" });
+      const rel = await releases.publish({
         tag: to,
         name: `${to}: ${notes.title}`,
         body: markdown,
@@ -461,14 +582,18 @@ export async function runTaglore(opts: TagloreOptions = {}): Promise<TagloreResu
         // Backfilled releases are older: they must not take the "Latest" badge.
         makeLatest: releaseType !== "prerelease" && !o.backfillRun,
         bodyMode: releaseBody,
+        assets,
+        log,
       });
-      await releases.uploadAsset(rel, RELEASE_ASSET_NAME, JSON.stringify(notes, null, 2) + "\n");
-      for (const f of files.filter((f) => ["security.json", "sbom.cdx.json", "sbom-image.cdx.json"].includes(f.name))) {
-        await releases.uploadAsset(rel, f.name, f.content, f.contentType);
-      }
-      if (history) await releases.uploadAsset(rel, HISTORY_ASSET_NAME, JSON.stringify(history) + "\n");
       releaseUrl = rel.html_url;
       log.info(`GitHub Release: ${releaseUrl}`);
+    }
+    if (store && releaseType !== "prerelease" && !unreleased) {
+      const all = mergeNotes([notes, ...known.values()], prefix).slice(0, 500);
+      const branchFiles = [{ path: branchPath("history.json"), content: JSON.stringify({ schemaVersion: SCHEMA_VERSION, releases: all }, null, 2) + "\n" }];
+      if (latest) branchFiles.push({ path: branchPath("latest.json"), content: JSON.stringify(latest, null, 2) + "\n" });
+      await store.write(branchFiles, `taglore: ${to}`);
+      log.info(`History branch: wrote ${branchFiles.map((f) => f.path).join(", ")} to ${store.branch} (${all.length} releases).`);
     }
     if (o.s3Uri) {
       s3Keys = await uploadToS3(o.s3Uri, files, o.s3Region);
@@ -477,7 +602,7 @@ export async function runTaglore(opts: TagloreOptions = {}): Promise<TagloreResu
   }
 
   return {
-    version: to,
+    version,
     previousVersion: from,
     releaseType,
     announce,
@@ -493,6 +618,8 @@ export async function runTaglore(opts: TagloreOptions = {}): Promise<TagloreResu
     security,
     evidence,
     evidenceMarkdown: renderEvidenceMarkdown(evidence),
+    context,
+    styleIssues: remainingStyle,
     history,
     backfilled,
   };
@@ -504,6 +631,7 @@ async function loadBaseline(
   tags: string[],
   prefix: string,
   releases: GitHubReleases | null,
+  known: Map<string, ReleaseNotes>,
   log: Logger,
 ): Promise<ReleaseNotes | null> {
   if (o.baselineFile) {
@@ -516,8 +644,16 @@ async function loadBaseline(
     log.warn("No earlier major/minor release found to reuse as the announcement.");
     return null;
   }
+  // The stored history (history-file / history-branch, or this run's backfill) needs no API calls.
+  for (const c of candidates) {
+    const k = known.get(c.raw);
+    if (k?.announce) {
+      log.info(`Reusing the ${c.raw} announcement for latest.json`);
+      return k;
+    }
+  }
   if (!releases) {
-    log.warn(`Cannot fetch the ${candidates[0]!.raw} announcement without a GitHub token. Use baseline-file to provide it.`);
+    log.warn(`Cannot fetch the ${candidates[0]!.raw} announcement without a GitHub token. Use history-file, history-branch or baseline-file to provide it.`);
     return null;
   }
   for (const c of candidates.slice(0, 10)) {
@@ -574,7 +710,8 @@ async function runBackfill(
   tags: string[],
   prefix: string,
   count: number,
-  repository: string | undefined,
+  releases: GitHubReleases | null,
+  known: Map<string, ReleaseNotes>,
   log: Logger,
 ): Promise<{ notes: ReleaseNotes[]; written: string[] }> {
   const earlier = stableTags(tags, prefix)
@@ -584,16 +721,19 @@ async function runBackfill(
     log.info("Backfill: no earlier tags.");
     return { notes: [], written: [] };
   }
-  const token = o.githubToken ?? process.env.GITHUB_TOKEN;
-  const releases = repository && token ? new GitHubReleases(token, parseRepo(repository), o.githubApiUrl, o.octokitOptions) : null;
   const publish = (o.publishGithubRelease ?? true) && !o.dryRun;
   if (publish && !releases) {
     log.warn("Backfill without a GitHub token: notes for earlier tags go into history.json only, not into their GitHub Releases.");
   }
-  log.info(`Backfill: ${earlier.length} earlier tag(s), ${earlier[0]!.raw} to ${earlier.at(-1)!.raw}.`);
-  const out: ReleaseNotes[] = [];
+  // Tags already in the stored history (history-file / history-branch) need nothing at all.
+  const missing = earlier.filter((t) => !known.has(t.raw));
+  log.info(
+    `Backfill: ${earlier.length} earlier tag(s), ${earlier[0]!.raw} to ${earlier.at(-1)!.raw}; ${missing.length} not in the stored history.`,
+  );
+  const out: ReleaseNotes[] = earlier.filter((t) => known.has(t.raw)).map((t) => known.get(t.raw)!);
   const written: string[] = [];
-  for (const tag of earlier) {
+  const seen = new Map(known);
+  for (const tag of missing) {
     const existing = releases ? await releases.readAsset(tag.raw) : null;
     if (existing) {
       let raw: unknown = null;
@@ -604,8 +744,9 @@ async function runBackfill(
       }
       const parsed = ReleaseNotesSchema.safeParse(raw);
       if (parsed.success) {
-        log.info(`Backfill: ${tag.raw} already has notes, skipped.`);
+        log.info(`Backfill: ${tag.raw} already has notes on its release, skipped.`);
         out.push(parsed.data);
+        seen.set(parsed.data.version, parsed.data);
         continue;
       }
     }
@@ -616,12 +757,14 @@ async function runBackfill(
       from: undefined,
       backfill: 0,
       backfillRun: true,
+      knownNotes: [...seen.values()],
       outputDir: undefined,
       s3Uri: undefined,
       previewFile: undefined,
       notesFrom: undefined,
       baselineFile: undefined,
       historyFile: undefined,
+      historyBranch: undefined,
       historyLimit: 0,
       security: false,
       securityImage: undefined,
@@ -630,8 +773,68 @@ async function runBackfill(
       publishGithubRelease: publish && !!releases,
     });
     out.push(r.notes);
+    seen.set(r.notes.version, r.notes);
     written.push(tag.raw);
   }
   log.info(`Backfill: wrote notes for ${written.length} tag(s), ${earlier.length - written.length} already had them.`);
   return { notes: out, written };
+}
+
+/** The newest stable release tag that is part of `ref` (null when there is none). */
+async function latestMergedTag(ref: string, prefix: string, cwd: string): Promise<string | null> {
+  const merged = (await git(["tag", "--merged", ref], cwd)).split("\n").map((t) => t.trim()).filter(Boolean);
+  return stableTags(merged, prefix).at(-1)?.raw ?? null;
+}
+
+/** Newest first by SemVer; later entries never replace an earlier one with the same version. */
+export function mergeNotes(list: ReleaseNotes[], prefix: string): ReleaseNotes[] {
+  const byVersion = new Map<string, ReleaseNotes>();
+  for (const n of list) if (!byVersion.has(n.version)) byVersion.set(n.version, n);
+  return [...byVersion.values()].sort((a, b) => {
+    const va = parseSemver(a.version, prefix);
+    const vb = parseSemver(b.version, prefix);
+    if (va && vb) return compareSemver(vb, va);
+    return va ? 1 : vb ? -1 : 0;
+  });
+}
+
+/**
+ * The stored history: history-file (CLI, any storage you like) or history-branch.
+ * null when neither is configured. A missing file or branch is an empty history (first run).
+ */
+async function loadStoredHistory(o: TagloreOptions, cwd: string, store: BranchStore | null, branchFile: string, log: Logger): Promise<ReleaseNotes[] | null> {
+  if (o.historyFile) {
+    const { readFile } = await import("node:fs/promises");
+    const { resolve } = await import("node:path");
+    let raw: string;
+    try {
+      raw = await readFile(resolve(cwd, o.historyFile), "utf8");
+    } catch {
+      log.info(`history-file: ${o.historyFile} doesn't exist yet; starting a new history.`);
+      return [];
+    }
+    const parsed = parseHistoryList(raw);
+    if (!parsed) throw new Error(`history-file: ${o.historyFile} is not a Taglore history.json.`);
+    return parsed;
+  }
+  if (store) {
+    const raw = await store.read(branchFile);
+    if (raw === null) {
+      log.info(`History branch: no ${branchFile} in ${store.branch} yet; it is created on publish.`);
+      return [];
+    }
+    const parsed = parseHistoryList(raw);
+    if (!parsed) throw new Error(`history-branch: ${branchFile} in ${store.branch} is not a Taglore history.json.`);
+    return parsed;
+  }
+  return null;
+}
+
+function parseHistoryList(raw: string): ReleaseNotes[] | null {
+  try {
+    const parsed = HistorySchema.safeParse(JSON.parse(raw));
+    return parsed.success ? parsed.data.releases : null;
+  } catch {
+    return null;
+  }
 }

@@ -19,6 +19,9 @@ on:
 
 permissions:
   contents: write
+  # Build provenance for the self-contained CLI and the tarballs (gh attestation verify).
+  id-token: write
+  attestations: write
 
 concurrency:
   group: release
@@ -48,7 +51,7 @@ jobs:
           TAG="v$(node -p "require('./packages/taglore/package.json').version")"
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
           if git rev-parse -q --verify "refs/tags/$TAG" >/dev/null; then
-            if gh release view "$TAG" --json assets -q '.assets[].name' 2>/dev/null | grep -qx taglore.json; then
+            if [ "$(gh release view "$TAG" --json isDraft -q .isDraft 2>/dev/null)" = "false" ] && gh release view "$TAG" --json assets -q '.assets[].name' 2>/dev/null | grep -qx taglore.json; then
               echo "$TAG is already released, nothing to do."
               echo "create=skip" >> "$GITHUB_OUTPUT"
             else
@@ -69,15 +72,57 @@ jobs:
           git tag -a "$TAG" -m "Taglore $TAG"
           git push origin "refs/tags/$TAG"
 
+      # The release stays a draft until every file is attached, then it is published:
+      # the order immutable releases require.
       - name: Release notes (written by Taglore)
         if: steps.version.outputs.create != 'skip'
         uses: ./
         with:
           to: ${{ steps.version.outputs.tag }}
+          release-draft: true
           # Optional secret. Without it, Copilot calls fail and Taglore falls back to commit-based notes.
           copilot-token: ${{ secrets.COPILOT_TOKEN }}
           product-name: Taglore
           audience: developers who use the Taglore GitHub Action, CLI and What's New components
+
+      - name: Build installable packages and the self-contained CLI
+        if: steps.version.outputs.create != 'skip'
+        run: |
+          npm ci
+          npm run build -w taglore -w @taglore/whats-new
+          mkdir -p "$RUNNER_TEMP/pkg"
+          npm pack -w taglore -w @taglore/whats-new --pack-destination "$RUNNER_TEMP/pkg"
+          # One file with every dependency inside: nothing is installed when it runs.
+          node scripts/bundle-cli.mjs "$RUNNER_TEMP/pkg/taglore.mjs"
+          rm -f "$RUNNER_TEMP/pkg/taglore.mjs.LEGAL.txt"
+          cd "$RUNNER_TEMP/pkg"
+          # Version-less copies give stable URLs: releases/latest/download/taglore.tgz
+          cp taglore-[0-9]*.tgz taglore.tgz
+          cp taglore-whats-new-[0-9]*.tgz taglore-whats-new.tgz
+          sha256sum taglore.mjs ./*.tgz | sed 's# \./# #' > SHA256SUMS
+          cat SHA256SUMS
+
+      - name: Attest build provenance
+        if: steps.version.outputs.create != 'skip'
+        uses: actions/attest-build-provenance@v4
+        with:
+          subject-path: |
+            ${{ runner.temp }}/pkg/taglore.mjs
+            ${{ runner.temp }}/pkg/*.tgz
+
+      - name: Attach the files and publish the release
+        if: steps.version.outputs.create != 'skip'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          cd "$RUNNER_TEMP/pkg"
+          gh release upload "$TAG" taglore.mjs ./*.tgz SHA256SUMS --clobber --repo "$GITHUB_REPOSITORY"
+          if [[ "$TAG" == *-* ]]; then
+            gh release edit "$TAG" --draft=false --prerelease --repo "$GITHUB_REPOSITORY"
+          else
+            gh release edit "$TAG" --draft=false --latest --repo "$GITHUB_REPOSITORY"
+          fi
 
       - name: Move major tag
         if: steps.version.outputs.create != 'skip' && !contains(steps.version.outputs.tag, '-')
@@ -89,22 +134,6 @@ jobs:
           if ! git push -f origin "refs/tags/$MAJOR"; then
             echo "::warning::Could not move $MAJOR to $TAG (workflow files changed and the token lacks the workflows permission). Add a RELEASE_TOKEN secret, or run: git tag -f $MAJOR $TAG && git push -f origin $MAJOR"
           fi
-
-      - name: Attach installable packages to the release
-        if: steps.version.outputs.create != 'skip'
-        env:
-          GH_TOKEN: ${{ github.token }}
-          TAG: ${{ steps.version.outputs.tag }}
-        run: |
-          npm ci
-          npm run build -w taglore -w @taglore/whats-new
-          mkdir -p "$RUNNER_TEMP/pkg"
-          npm pack -w taglore -w @taglore/whats-new --pack-destination "$RUNNER_TEMP/pkg"
-          cd "$RUNNER_TEMP/pkg"
-          # Version-less copies give stable URLs: releases/latest/download/taglore.tgz
-          cp taglore-[0-9]*.tgz taglore.tgz
-          cp taglore-whats-new-[0-9]*.tgz taglore-whats-new.tgz
-          gh release upload "$TAG" ./*.tgz --clobber --repo "$GITHUB_REPOSITORY"
 
       - name: Publish to npm (only when an NPM_TOKEN secret exists)
         if: steps.version.outputs.create != 'skip'

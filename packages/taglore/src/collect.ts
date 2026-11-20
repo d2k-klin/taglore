@@ -20,6 +20,51 @@ export interface ChangeSet {
   stat: string;
   diff: string;
   diffTruncated: boolean;
+  /** Per-file diffs in priority order (user-facing code first, tests/CI/docs last). */
+  fileDiffs?: FileDiff[];
+}
+
+export interface FileDiff {
+  path: string;
+  diff: string;
+  /** Cut to the per-file cap while collecting. */
+  truncated: boolean;
+  /** 0 = focus-paths, 1 = normal, 2 = tests, CI, docs, tooling. */
+  priority: number;
+}
+
+/** Paths that rarely change what users see. They go last when the context budget runs out. */
+const LOW_PRIORITY = [
+  /(^|\/)(tests?|__tests__|specs?|e2e|cypress|playwright|fixtures?|__fixtures__|mocks?|__mocks__|testdata|test-utils)(\/|$)/i,
+  /\.(test|spec|stories|story|bench)\.[a-z0-9]+$/i,
+  /(^|\/)(\.github|\.circleci|\.husky|\.vscode|\.devcontainer)\//i,
+  /(^|\/)(\.gitlab-ci\.yml|jenkinsfile|azure-pipelines\.yml|\.pre-commit-config\.yaml)$/i,
+  /(^|\/)(docs?|examples?|scripts?|tools?|benchmarks?|storybook|\.storybook)\//i,
+  /\.(md|mdx|rst|adoc)$/i,
+  /(^|\/)[^/]*\.config\.[a-z0-9]+$/i,
+  /(^|\/)(tsconfig[^/]*\.json|\.eslintrc[^/]*|\.prettierrc[^/]*|biome\.jsonc?|\.editorconfig|\.gitignore|\.dockerignore|renovate\.json|dependabot\.ya?ml)$/i,
+];
+
+/** Minimal glob for focus-paths: ** (any folders), * (within a folder), ?. A plain folder matches everything below it. */
+export function globToRegExp(glob: string): RegExp {
+  const g = glob.trim().replace(/\\/g, "/").replace(/^\.\//, "");
+  if (!/[*?]/.test(g)) return new RegExp(`^${g.replace(/[.+^${}()|[\]\\]/g, "\\$&").replace(/\/$/, "")}(\/|$)`);
+  let re = "";
+  for (let i = 0; i < g.length; i++) {
+    const c = g[i]!;
+    if (c === "*" && g[i + 1] === "*") {
+      re += g[i + 2] === "/" ? "(?:.*/)?" : ".*";
+      i += g[i + 2] === "/" ? 2 : 1;
+    } else if (c === "*") re += "[^/]*";
+    else if (c === "?") re += "[^/]";
+    else re += c.replace(/[.+^${}()|[\]\\]/g, "\\$&");
+  }
+  return new RegExp(`^${re}$`);
+}
+
+export function filePriority(path: string, focus: RegExp[]): number {
+  if (focus.some((r) => r.test(path))) return 0;
+  return LOW_PRIORITY.some((r) => r.test(path)) ? 2 : 1;
 }
 
 export const DEFAULT_EXCLUDES = [
@@ -111,6 +156,8 @@ export async function collectChanges(opts: {
   maxDiffBytes: number;
   /** Limit the release to these folders/files (monorepos). Empty: the whole repository. */
   paths?: string[];
+  /** Globs whose diffs go first when the budget runs out (e.g. src/app/**). */
+  focusPaths?: string[];
 }): Promise<ChangeSet> {
   const { from, to, cwd, excludes, maxDiffBytes } = opts;
   const paths = normalizePaths(opts.paths);
@@ -131,25 +178,36 @@ export async function collectChanges(opts: {
 
   const stat = await git(["diff", "--stat=120", base, to, ...pathspec], cwd);
 
+  const focus = (opts.focusPaths ?? []).filter((f) => f.trim()).map(globToRegExp);
+  // User-facing code first, tests/CI/docs last: when the budget runs out, the least useful part is cut.
+  const ordered = files
+    .map((f, i) => ({ f, i, priority: filePriority(f.path, focus) }))
+    .sort((a, b) => a.priority - b.priority || a.i - b.i);
   const perFileCap = Math.max(4_000, Math.floor(maxDiffBytes / Math.max(1, Math.min(files.length, 20))));
-  let diff = "";
+  const fileDiffs: FileDiff[] = [];
+  let size = 0;
   let truncated = false;
-  for (const f of files) {
-    if (Buffer.byteLength(diff) >= maxDiffBytes) {
+  for (const { f, priority } of ordered) {
+    if (size >= maxDiffBytes) {
       truncated = true;
-      break;
+      fileDiffs.push({ path: f.path, diff: "", truncated: true, priority });
+      continue;
     }
     let chunk = await git(["diff", "--unified=2", "--no-color", base, to, "--", f.path], cwd);
+    let cut = false;
     if (Buffer.byteLength(chunk) > perFileCap) {
       chunk = chunk.slice(0, perFileCap) + `\n[... diff for ${f.path} truncated ...]\n`;
+      cut = true;
       truncated = true;
     }
-    diff += chunk;
+    size += Buffer.byteLength(chunk);
+    fileDiffs.push({ path: f.path, diff: chunk, truncated: cut, priority });
   }
+  let diff = fileDiffs.map((d) => d.diff).join("");
   if (Buffer.byteLength(diff) > maxDiffBytes) {
     diff = diff.slice(0, maxDiffBytes) + "\n[... remaining diff truncated ...]\n";
     truncated = true;
   }
 
-  return { from, to, commits, files, stat, diff, diffTruncated: truncated };
+  return { from, to, commits, files, stat, diff, diffTruncated: truncated, fileDiffs };
 }

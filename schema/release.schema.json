@@ -168,7 +168,8 @@
         "major",
         "minor",
         "patch",
-        "prerelease"
+        "prerelease",
+        "unreleased"
       ]
     },
     "announce": {

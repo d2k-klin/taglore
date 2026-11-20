@@ -1,4 +1,5 @@
 import type { EvidenceReport } from "./evidence.js";
+import type { ContextReport } from "./prompt.js";
 import type { NoteItem, ReleaseNotes } from "./schema.js";
 
 const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
@@ -17,7 +18,24 @@ const LABEL = { breaking: "Breaking", highlights: "Highlight", improvements: "Im
  * and which commits stand behind every statement. It lists commit subjects, so keep it
  * out of the files you ship to users.
  */
-export function renderPreview(n: ReleaseNotes, evidence: EvidenceReport, opts: { repositoryUrl?: string | null } = {}): string {
+export function renderPreview(
+  n: ReleaseNotes,
+  evidence: EvidenceReport,
+  opts: { repositoryUrl?: string | null; context?: ContextReport | null; styleIssues?: string[] } = {},
+): string {
+  const c = opts.context;
+  const contextHtml = !c
+    ? ""
+    : `<h2>What the AI saw</h2>${
+        c.truncated
+          ? `<p class="banner warn">This release is larger than max-diff-kb (${c.budgetKb} KB). The AI saw ${c.commits.shown} of ${c.commits.total} commits and ${c.files.diffFull} of ${c.files.total} file diffs in full${
+              c.files.diffPartial.length ? `; cut short: ${esc(c.files.diffPartial.join(", "))}` : ""
+            }${c.files.diffOmitted.length ? `; left out: ${esc(c.files.diffOmitted.join(", "))}` : ""}.</p>`
+          : `<p class="banner ok">The AI saw all ${c.commits.total} commits and every file diff (${c.budgetKb} KB budget).</p>`
+      }`;
+  const styleHtml = opts.styleIssues?.length
+    ? `<h2>Style check</h2><p class="banner warn">${opts.styleIssues.map(esc).join("<br>")}</p>`
+    : "";
   const commitLink = (sha: string) => (opts.repositoryUrl ? `<a href="${esc(opts.repositoryUrl)}/commit/${esc(sha)}"><code>${esc(sha)}</code></a>` : `<code>${esc(sha)}</code>`);
   const rows = evidence.items
     .map(
@@ -67,6 +85,7 @@ ${section("Action needed", n.breaking, "breaking")}${section("Highlights", n.hig
 <h2>Evidence</h2>
 ${banner}
 <table><thead><tr><th></th><th>Statement</th><th>Supporting commits</th></tr></thead><tbody>${rows || '<tr><td colspan="3">No statements.</td></tr>'}</tbody></table>
+${styleHtml}${contextHtml}
 </main></body></html>
 `;
 }

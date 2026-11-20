@@ -190,9 +190,73 @@ The reviewer approves or rejects in GitHub; re-running the `preview` job regener
 
 Evidence shows that a statement points at real changes in this release. It does not prove the wording is accurate, which is what the human review is for. The preview lists commit subjects, so keep it out of `output-dir`.
 
+### Facts the AI can't see in the code
+
+Commits don't say which features are switched on in production, or that a change only reached some customers. Give the AI those facts per release, and they only apply to that release:
+
+```yaml
+- uses: d2k-klin/taglore@v1
+  with:
+    facts-file: docs/release-facts/{version}.md      # missing file = no facts for that release
+    # or a command that prints them; it gets TAGLORE_VERSION, TAGLORE_FROM, TAGLORE_TO, TAGLORE_RELEASE_TYPE
+    facts-command: ./scripts/flags-for-release.sh
+    instructions: "Mention the {version} migration guide when a statement is breaking."
+```
+
+`{version}`, `{from}`, `{to}` and `{releaseType}` work in `facts-file` and `instructions`. A failing `facts-command` stops the run (missing facts would mean wrong notes). Backfill fills them in per tag, so 40 earlier releases each get their own facts. Every statement still needs supporting commits.
+
+### Style rules, checked in code
+
+Prompt wording alone doesn't guarantee style. Taglore checks the answer itself:
+
+- **Length and shape.** An answer that breaks the format (a 101-character title, a missing field) gets one retry that tells the model exactly what was wrong. If length is the only problem, Taglore shortens the text at a word boundary instead and saves the request.
+- **Commit hashes** in user-facing text are always flagged; they belong in the evidence, not the copy.
+- **`forbidden-terms`**: words (whole word, case-insensitive) or `/regex/` that must never appear, such as environment names or codenames. A hit triggers the same corrective retry.
+
+```yaml
+    forbidden-terms: staging, dev, /prod-(eu|us)-\d/
+    style-check: strict    # still broken after the retry: fail and publish nothing (default: warn)
+```
+
+### Big releases
+
+When a release is larger than `max-diff-kb`, Taglore fills the budget file by file, user-facing code first. Tests, CI, docs, tooling and config go last, so a cut lands on them. `focus-paths` puts your own globs first (`focus-paths: src/app/**, src/api/**`). The log, the preview page and the `context-truncated` output say exactly what the AI saw: how many commits and file diffs in full, which were cut short and which were left out.
+
+### Unreleased changes
+
+For an "Upcoming" entry on a dev or staging environment, write notes for everything since the last release tag, without a tag:
+
+```yaml
+- uses: d2k-klin/taglore@v1
+  with:
+    unreleased: true              # to: HEAD, from: the newest release tag in this branch
+    unreleased-label: Upcoming    # default: Unreleased
+    output-dir: public/release-notes
+    history-file: ...             # optional; history.json gets the entry on top
+```
+
+The notes carry `"version": "Upcoming"` and `"releaseType": "unreleased"`. No GitHub Release is created, nothing is announced, and the entry never goes into the stored history.
+
+### Immutable releases, or no GitHub Releases at all
+
+Taglore creates a release as a draft, attaches its files, and only then publishes it, the order [immutable releases](https://docs.github.com/en/code-security/concepts/supply-chain-security/immutable-releases) require. A release that's already published and immutable (for example one Release Please published) still gets its notes, because titles and notes stay editable, but files can't be added to it any more. A draft someone else created stays a draft.
+
+To keep the history somewhere that never depends on release files, store it in a branch:
+
+```yaml
+permissions:
+  contents: write
+steps:
+  - uses: d2k-klin/taglore@v1
+    with:
+      history-branch: taglore-data      # created on first use, no shared history with your code
+```
+
+Each run reads `history.json` from that branch and writes it back with `latest.json`, in one commit. Backfill skips the tags it already holds, and patches find their announcement in it, all without reading a single release asset. It also works with `publish-github-release: false`, and apps can read the files straight from the branch. In a monorepo each tag prefix gets its own folder (`history-branch-dir`). The CLI does the same with `--history-file`: keep the file wherever you like.
+
 ### Changelog page
 
-Every run also writes `history.json`: this release followed by the earlier ones, newest first (`history-limit`, default 20). Earlier releases are read from your GitHub Releases, so there is still no database. Serve it next to `latest.json` and show it with one tag:
+Every run also writes `history.json`: this release followed by the earlier ones, newest first (`history-limit`, default 20). Earlier releases are read from your GitHub Releases, or from `history-branch` / `history-file`, so there is still no database. Serve it next to `latest.json` and show it with one tag:
 
 ```html
 <script type="module" src="/release-notes/taglore-whats-new.js"></script>
@@ -378,16 +442,25 @@ More in [examples/workflows](examples/workflows).
 | `tone` | `friendly and concise` | Writing tone |
 | `audience` | `end users of the application` | Who reads the notes |
 | `product-name` | repo name | Name used in the prompt |
-| `instructions` | | Extra guidance for the AI |
+| `instructions` | | Extra guidance for the AI; `{version}`, `{from}`, `{to}`, `{releaseType}` are filled in |
+| `facts-file` | | Per-release facts for the AI, e.g. `docs/release-facts/{version}.md`; missing file = none |
+| `facts-command` | | Command that prints per-release facts; gets `TAGLORE_VERSION`, `TAGLORE_FROM`, `TAGLORE_TO`, `TAGLORE_RELEASE_TYPE` |
+| `forbidden-terms` | | Words or `/regex/` that must not appear in the notes; a hit gets one corrective retry |
+| `style-check` | `warn` | `strict` fails (nothing published) when a style rule is still broken after the retry |
+| `focus-paths` | | Globs whose diffs go first when a release is larger than `max-diff-kb` |
 | `exclude` | | Extra globs kept out of the AI context |
 | `max-diff-kb` | `300` (`20` for github-models) | Size of the whole change context sent to the AI: commit list, file list and diff together |
 | `evidence` | `warn` | `warn` reports statements no commit supports, `strict` removes them |
 | `preview-file` | | Write a review page (what users see + the commits behind it) to this path |
 | `history-limit` | `20` | Releases kept in `history.json`; `0` turns it off |
-| `history-file` | | Local `history.json` to continue from instead of GitHub Releases |
+| `history-file` | | Local `history.json` to continue from instead of GitHub Releases; backfill skips the tags in it |
+| `history-branch` | | Keep `history.json` and `latest.json` in this branch (immutable releases, or no releases at all); needs `contents: write` |
+| `history-branch-dir` | none, or the tag prefix | Folder inside `history-branch` |
+| `unreleased` | `false` | Notes for the untagged changes since the last release (`to` defaults to `HEAD`) |
+| `unreleased-label` | `Unreleased` | Version label for unreleased notes |
 | `publish-github-release` | `true` | Create/update the GitHub Release and attach `taglore.json` |
 | `release-body` | `replace` (`prepend` for backfilled releases) | For a release that already has a body (e.g. Release Please): `prepend` or `append` Taglore's notes and keep its title |
-| `release-draft` | `false` | Create new releases as drafts |
+| `release-draft` | `false` | Keep new releases as drafts (they are always created as a draft first, then published) |
 | `include-commits` | `true` | Collapsible commit list in the Markdown |
 | `output-dir` | | Write `latest.json`, `release.json`, `RELEASE_NOTES.md` here |
 | `web-components` | `false` | Also write `taglore-whats-new.js` (both web components, one file) to `output-dir` |
@@ -407,7 +480,7 @@ More in [examples/workflows](examples/workflows).
 | `github-token` | `github.token` | Token for Releases / GitHub Models |
 | `working-directory` | workspace | Repository folder |
 
-**Outputs:** `version`, `backfilled`, `previous-version`, `release-type`, `announce`, `provider`, `release-url`, `markdown`, `json`, `latest-json-path`, `release-json-path`, `markdown-path`, `history-json-path`, `unverified-statements`, `artifact-name`, and with `security-scan`: `security-open`, `security-introduced`, `security-fixed`, `security-open-critical`, `security-open-high`, `security-json-path`, `sbom-path`, `image-sbom-path`.
+**Outputs:** `version`, `backfilled`, `context-truncated`, `style-issues`, `previous-version`, `release-type`, `announce`, `provider`, `release-url`, `markdown`, `json`, `latest-json-path`, `release-json-path`, `markdown-path`, `history-json-path`, `unverified-statements`, `artifact-name`, and with `security-scan`: `security-open`, `security-introduced`, `security-fixed`, `security-open-critical`, `security-open-high`, `security-json-path`, `sbom-path`, `image-sbom-path`.
 
 ## CLI
 
@@ -420,6 +493,19 @@ npx --package=https://github.com/d2k-klin/taglore/releases/latest/download/taglo
 npx --package=https://github.com/d2k-klin/taglore/releases/latest/download/taglore.tgz taglore generate --github --repo owner/app              # publish (needs GITHUB_TOKEN)
 npx --package=https://github.com/d2k-klin/taglore/releases/latest/download/taglore.tgz taglore --help
 ```
+
+### Without installing anything: the self-contained CLI
+
+Locked-down environments that can't use the action, or can't install packages on every run, can use `taglore.mjs`: one file with every dependency inside, attached to each release with `SHA256SUMS` and a signed build provenance attestation.
+
+```bash
+gh release download v1.6.0 -R d2k-klin/taglore -p taglore.mjs -p SHA256SUMS
+sha256sum --check --ignore-missing SHA256SUMS
+gh attestation verify taglore.mjs -R d2k-klin/taglore     # built by this repository's release workflow
+node taglore.mjs generate --to v1.9.0 --dry-run           # Node 20+, nothing else
+```
+
+Commit the file next to your pipeline, or mirror it, and pin the version you verified. For the action itself, pin a commit SHA (`d2k-klin/taglore@<sha>`); `dist/index.js` is a single committed file too.
 
 ## Files and format
 

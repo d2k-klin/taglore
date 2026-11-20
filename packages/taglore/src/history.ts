@@ -15,6 +15,8 @@ export interface HistoryOptions {
   limit: number;
   /** Local history.json to continue from (no GitHub needed). */
   historyFile?: string;
+  /** Earlier releases already loaded by the caller (history-file / history-branch). Used as is. */
+  stored?: ReleaseNotes[] | null;
   cwd: string;
   releases: GitHubReleases | null;
   log: { info(m: string): void; warn(m: string): void };
@@ -40,7 +42,10 @@ function parseHistory(raw: string): ReleaseNotes[] | null {
 export async function buildHistory(o: HistoryOptions): Promise<History> {
   let earlier: ReleaseNotes[] = [];
 
-  if (o.historyFile) {
+  if (o.stored?.length) {
+    // An empty stored history (first run with history-branch) still looks at the GitHub Releases.
+    earlier = o.stored;
+  } else if (o.historyFile) {
     const fromFile = parseHistory(await readFile(resolve(o.cwd, o.historyFile), "utf8"));
     if (!fromFile) throw new Error(`history-file: ${o.historyFile} is not a Taglore history.json.`);
     earlier = fromFile;
@@ -71,8 +76,8 @@ export async function buildHistory(o: HistoryOptions): Promise<History> {
       }
     }
     if (below.length && !earlier.length) o.log.info("No earlier Taglore releases found; history.json starts with this release.");
-  } else if (!o.releases) {
-    o.log.info("No GitHub token or history-file: history.json contains this release only.");
+  } else if (!o.releases && !o.stored && !o.extra?.length) {
+    o.log.info("No GitHub token, history-file or history-branch: history.json contains this release only.");
   }
 
   if (o.extra?.length) {

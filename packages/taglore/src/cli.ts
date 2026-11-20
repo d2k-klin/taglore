@@ -17,6 +17,8 @@ Versions
   --compare <mode>        auto | previous-tag | previous-minor | previous-major | explicit (default: auto)
   --tag-prefix <p>        Tag prefix (default: v), e.g. web-v for tags like web-v1.2.0
   --path <p>              Monorepos: limit the release to this folder or file (repeatable)
+  --unreleased            Notes for the changes since the last release tag (to defaults to HEAD)
+  --unreleased-label <l>  Version label for --unreleased (default: Unreleased)
 
 AI
   --provider <name>       copilot | github-models | none (default: copilot)
@@ -28,7 +30,12 @@ AI
   --language <lang>       Default: English
   --tone <text>           Default: "friendly and concise"
   --audience <text>       Default: "end users of the application"
-  --instructions <text>   Extra guidance for the AI
+  --instructions <text>   Extra guidance for the AI; {version}, {from}, {to}, {releaseType} are filled in
+  --facts-file <path>     Per-release facts for the AI, e.g. docs/releases/{version}.md (missing = none)
+  --facts-from <command>  Command that prints per-release facts; gets TAGLORE_VERSION, TAGLORE_FROM, TAGLORE_TO
+  --forbid <term>         Word or /regex/ that must not appear in the notes (repeatable)
+  --style-check <mode>    warn | strict: what happens when a style rule is still broken (default: warn)
+  --focus <glob>          Diffs that go first when a big release doesn't fit (repeatable)
   --exclude <glob>        Extra path to keep out of the AI context (repeatable)
   --max-diff-kb <n>       Change context sent to the AI in KB (default: 300, github-models: 20, max 4096)
 
@@ -44,6 +51,8 @@ Review and history
   --preview <file>        Write a review page: what users will see and the commits behind it
   --history-limit <n>     Releases kept in history.json (default: 20, 0 = off)
   --history-file <file>   Continue from a local history.json instead of GitHub Releases
+                          (backfill skips the tags in it; patches find their announcement in it)
+  --history-branch <b>    Keep history.json and latest.json in this branch (needs a token)
 
 Output
   --out <dir>             Write latest.json, release.json, RELEASE_NOTES.md here
@@ -107,6 +116,14 @@ async function main() {
       preview: { type: "string" },
       "history-limit": { type: "string" },
       "history-file": { type: "string" },
+      "history-branch": { type: "string" },
+      unreleased: { type: "boolean" },
+      "unreleased-label": { type: "string" },
+      "facts-file": { type: "string" },
+      "facts-from": { type: "string" },
+      forbid: { type: "string", multiple: true },
+      "style-check": { type: "string" },
+      focus: { type: "string", multiple: true },
       help: { type: "boolean", short: "h" },
       version: { type: "boolean", short: "v" },
     },
@@ -153,6 +170,14 @@ async function main() {
     previewFile: values.preview,
     historyLimit: values["history-limit"] ? Number(values["history-limit"]) : undefined,
     historyFile: values["history-file"],
+    historyBranch: values["history-branch"],
+    unreleased: values.unreleased,
+    unreleasedLabel: values["unreleased-label"],
+    factsFile: values["facts-file"],
+    factsCommand: values["facts-from"],
+    forbiddenTerms: values.forbid,
+    styleCheck: values["style-check"] as "warn" | "strict" | undefined,
+    focusPaths: values.focus,
     log: quiet ? { info: () => {}, warn: (m) => console.error(`warning: ${m}`) } : undefined,
   });
 

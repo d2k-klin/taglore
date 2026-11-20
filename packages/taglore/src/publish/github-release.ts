@@ -22,6 +22,20 @@ export function composeBody(existing: string | null | undefined, notes: string, 
   return mode === "prepend" ? `${block}\n\n---\n\n${other}` : `${other}\n\n---\n\n${block}`;
 }
 
+export interface ReleaseAsset {
+  name: string;
+  content: string;
+  contentType?: string;
+}
+
+/** True when a release body is nothing but Taglore's block (written by Taglore alone). */
+export function isOnlyTagloreBody(body: string | null | undefined): boolean {
+  if (!body?.trim()) return true;
+  const start = body.indexOf(BODY_START);
+  const end = body.indexOf(BODY_END);
+  return start !== -1 && end > start && (body.slice(0, start) + body.slice(end + BODY_END.length)).trim() === "";
+}
+
 export interface RepoRef {
   owner: string;
   repo: string;
@@ -50,34 +64,113 @@ export class GitHubReleases {
     }
   }
 
-  /** Creates the release, or updates the body of an existing one (e.g. created by another workflow). */
+  /** Drafts are invisible to getReleaseByTag, so look for one in the release list. */
+  async findDraftByTag(tag: string) {
+    const { data } = await this.octokit.rest.repos.listReleases({ ...this.ref, per_page: 100 });
+    return data.find((r) => r.draft && r.tag_name === tag) ?? null;
+  }
+
   /**
-   * Creates the release, or updates an existing one (e.g. created by Release Please).
+   * Creates or updates the release and attaches the assets.
+   *
+   * New releases are created as a draft, the assets are attached, and only then is the release
+   * published. That is the order immutable releases require (assets can't be added after
+   * publishing) and it means nobody sees a release without its files.
+   *
+   * An existing published release keeps its state: Taglore updates the text (allowed even for
+   * immutable releases) and attaches the assets unless the release is immutable. A draft that
+   * someone else created (e.g. Release Please with draft: true) stays a draft.
+   *
    * bodyMode replace: Taglore owns title and body. prepend/append: Taglore's notes go before/after
    * the existing body and the existing title is kept.
    */
-  async upsert(o: { tag: string; name: string; body: string; prerelease: boolean; draft: boolean; makeLatest: boolean; bodyMode?: ReleaseBodyMode }) {
+  async publish(o: {
+    tag: string;
+    name: string;
+    body: string;
+    prerelease: boolean;
+    draft: boolean;
+    makeLatest: boolean;
+    bodyMode?: ReleaseBodyMode;
+    assets: ReleaseAsset[];
+    log?: { info(m: string): void; warn(m: string): void };
+  }): Promise<{ html_url: string; assetsAttached: boolean }> {
     const mode = o.bodyMode ?? "replace";
-    const existing = await this.findByTag(o.tag);
-    if (existing) {
+    const log = o.log ?? { info: () => {}, warn: () => {} };
+    const existing = (await this.findByTag(o.tag)) ?? (await this.findDraftByTag(o.tag));
+
+    if (existing && !existing.draft) {
       const { data } = await this.octokit.rest.repos.updateRelease({
         ...this.ref,
         release_id: existing.id,
         ...(mode === "replace" || !existing.name ? { name: o.name } : {}),
         body: composeBody(existing.body, o.body, mode),
       });
-      return data;
+      if ((existing as { immutable?: boolean }).immutable) {
+        log.warn(
+          `${o.tag} is an immutable release: its notes were updated, but files can't be attached after publishing. Earlier runs and patch releases can't read them from here; use history-branch to keep the history.`,
+        );
+        return { html_url: data.html_url, assetsAttached: false };
+      }
+      const attached = await this.attachAll(data, o.assets, o.tag, log);
+      return { html_url: data.html_url, assetsAttached: attached };
     }
-    const { data } = await this.octokit.rest.repos.createRelease({
+
+    let draft = existing;
+    // A draft that holds only Taglore's notes is one an earlier run left behind: finish it.
+    const ownDraft = !draft || isOnlyTagloreBody(draft.body);
+    if (draft) {
+      const { data } = await this.octokit.rest.repos.updateRelease({
+        ...this.ref,
+        release_id: draft.id,
+        ...(mode === "replace" || !draft.name ? { name: o.name } : {}),
+        body: composeBody(draft.body, o.body, mode),
+        prerelease: o.prerelease,
+      });
+      draft = data;
+    } else {
+      const { data } = await this.octokit.rest.repos.createRelease({
+        ...this.ref,
+        tag_name: o.tag,
+        name: o.name,
+        body: composeBody(null, o.body, mode),
+        prerelease: o.prerelease,
+        draft: true,
+      });
+      draft = data;
+    }
+    await this.attachAll(draft, o.assets, o.tag, log);
+    if (o.draft || !ownDraft) {
+      if (!ownDraft) log.info(`${o.tag} is a draft someone else created; it stays a draft.`);
+      return { html_url: draft.html_url, assetsAttached: true };
+    }
+    const { data: published } = await this.octokit.rest.repos.updateRelease({
       ...this.ref,
-      tag_name: o.tag,
-      name: o.name,
-      body: composeBody(null, o.body, mode),
-      prerelease: o.prerelease,
-      draft: o.draft,
+      release_id: draft.id,
+      draft: false,
       make_latest: o.makeLatest ? "true" : "false",
     });
-    return data;
+    return { html_url: published.html_url, assetsAttached: true };
+  }
+
+  private async attachAll(release: { id: number; upload_url: string }, assets: ReleaseAsset[], tag: string, log: { warn(m: string): void }) {
+    try {
+      for (const a of assets) await this.uploadAsset(release, a.name, a.content, a.contentType);
+      return true;
+    } catch (e) {
+      // A release made immutable between our read and the upload, or by an org-wide policy.
+      if ((e as { status?: number }).status === 422 && /immutable/i.test(String((e as Error).message))) {
+        log.warn(`${tag} is an immutable release: files can't be attached after publishing. Use history-branch to keep the history.`);
+        return false;
+      }
+      throw e;
+    }
+  }
+
+  /** @deprecated Use publish(). Kept for callers of the 1.x API: creates or updates without assets. */
+  async upsert(o: { tag: string; name: string; body: string; prerelease: boolean; draft: boolean; makeLatest: boolean; bodyMode?: ReleaseBodyMode }) {
+    await this.publish({ ...o, assets: [] });
+    return (await this.findByTag(o.tag)) ?? (await this.findDraftByTag(o.tag))!;
   }
 
   /** Uploads (or replaces) a release asset. Uses the release's own upload_url, so GitHub Enterprise Server works too. */

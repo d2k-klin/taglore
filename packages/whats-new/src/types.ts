@@ -16,7 +16,7 @@ export interface ReleaseNotes {
   schemaVersion: 1;
   version: string;
   previousVersion: string | null;
-  releaseType: "major" | "minor" | "patch" | "prerelease";
+  releaseType: "major" | "minor" | "patch" | "prerelease" | "unreleased";
   announce: boolean;
   date: string;
   title: string;

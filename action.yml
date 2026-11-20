@@ -75,7 +75,7 @@ inputs:
     description: Product name used in the prompt. Default is the repository name.
     required: false
   instructions:
-    description: Extra guidance for the AI (terminology, things to never mention, etc.).
+    description: Extra guidance for the AI (terminology, things to never mention, etc.). {version}, {from}, {to} and {releaseType} are filled in.
     required: false
   exclude:
     description: Extra glob patterns kept out of the AI context, comma or newline separated. Lockfiles, build output, images and .env files are always excluded.
@@ -128,7 +128,37 @@ inputs:
     required: false
     default: "20"
   history-file:
-    description: Local history.json to continue from. Default is to read earlier GitHub Releases.
+    description: Local history.json to continue from. Default is to read earlier GitHub Releases. Backfill skips the tags in it, and patches find their announcement in it.
+    required: false
+  history-branch:
+    description: "Keep history.json and latest.json in this branch of the repository (created on first use, written through the API). For immutable releases or projects without GitHub Releases. Needs contents: write."
+    required: false
+  history-branch-dir:
+    description: Folder inside history-branch. Default none, or the tag prefix when it isn't "v" (so monorepo apps don't overwrite each other).
+    required: false
+  unreleased:
+    description: "Write notes for the changes since the last release tag that aren't tagged yet (to defaults to HEAD). For an \"Upcoming\" entry in dev or staging. No GitHub Release is created."
+    required: false
+    default: "false"
+  unreleased-label:
+    description: Version label for unreleased notes.
+    required: false
+    default: Unreleased
+  facts-file:
+    description: "Per-release facts for the AI (e.g. which features are on in production): a file path with {version}, {from}, {to} placeholders, e.g. docs/releases/{version}.md. A missing file means no facts."
+    required: false
+  facts-command:
+    description: Shell command that prints per-release facts for the AI. It gets TAGLORE_VERSION, TAGLORE_FROM, TAGLORE_TO and TAGLORE_RELEASE_TYPE. A failing command stops the run.
+    required: false
+  forbidden-terms:
+    description: "Words (whole word, case-insensitive) or /regex/ that must not appear in the notes, comma or newline separated: environment names, codenames. Commit hashes are always checked. A violation gets one corrective retry."
+    required: false
+  style-check:
+    description: "warn: report style violations left after the retry. strict: fail and publish nothing."
+    required: false
+    default: warn
+  focus-paths:
+    description: "Globs whose diffs go first when a big release doesn't fit max-diff-kb, e.g. src/app/**. Tests, CI, docs and tooling always go last."
     required: false
 
   # Outputs
@@ -185,6 +215,10 @@ inputs:
     required: false
 
 outputs:
+  context-truncated:
+    description: "\"true\" when the release was larger than max-diff-kb and the AI saw only part of it (the log lists what was left out)"
+  style-issues:
+    description: Number of style rule violations left in the notes (style-check warn)
   backfilled:
     description: Earlier tags that got notes in this run (backfill), comma-separated
   version:

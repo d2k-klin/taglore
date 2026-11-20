@@ -21,6 +21,12 @@ jobs:
       - run: npm run typecheck
       - run: npm test
       - run: npm run build
+      - name: The self-contained CLI runs without node_modules
+        run: |
+          node scripts/bundle-cli.mjs "$RUNNER_TEMP/cli/taglore.mjs"
+          cd "$RUNNER_TEMP/cli"
+          node taglore.mjs --version
+          node taglore.mjs --help | grep -q -- "--history-branch"
       - name: dist/ and schema/ are up to date
         run: |
           if ! git diff --exit-code -- dist schema; then

@@ -4,7 +4,8 @@ import { SecuritySummarySchema } from "./security/types.js";
 /** Bump when the JSON shape changes in a breaking way. */
 export const SCHEMA_VERSION = 1 as const;
 
-export const ReleaseTypeSchema = z.enum(["major", "minor", "patch", "prerelease"]);
+/** "unreleased": changes since the last release that aren't tagged yet (unreleased: true). */
+export const ReleaseTypeSchema = z.enum(["major", "minor", "patch", "prerelease", "unreleased"]);
 export type ReleaseType = z.infer<typeof ReleaseTypeSchema>;
 
 export const NoteItemSchema = z.object({

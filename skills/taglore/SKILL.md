@@ -137,7 +137,12 @@ Behaviour to explain to the user: each major/minor announcement shows once per b
 
 - Every statement in the notes lists the commits behind it. Taglore keeps only hashes that are real commits in the compared range. `evidence: warn` (default) reports statements with none; `evidence: strict` removes them. The run summary shows the table; `unverified-statements` is an output.
 - `preview-file` writes a review page (the dialog users will see plus the evidence). It contains commit subjects: never put it in `output-dir` or the image.
-- `history.json` holds every release, newest first (`history-limit`, default 20, `0` = off), built from earlier GitHub Releases. Without a GitHub token, pass `history-file`.
+- `history.json` holds every release, newest first (`history-limit`, default 20, `0` = off), built from earlier GitHub Releases. Without a GitHub token, pass `history-file`; backfill then skips the tags in it and patches find their announcement in it.
+- Immutable releases: Taglore always creates a draft, attaches its files, then publishes, so they work out of the box. A release that is already published and immutable gets its notes but no files; recommend `history-branch: taglore-data` (needs `permissions: contents: write`) so the history never depends on release files. The same option works with `publish-github-release: false` for projects without GitHub Releases. Monorepos: one folder per tag prefix (`history-branch-dir`).
+- Per-release context: `facts-file: docs/release-facts/{version}.md` (missing file = none) or `facts-command` (gets `TAGLORE_VERSION`, `TAGLORE_FROM`, `TAGLORE_TO`, `TAGLORE_RELEASE_TYPE`; a failing command stops the run). `{version}`, `{from}`, `{to}`, `{releaseType}` also work in `instructions`. Use this for feature flags or rollout facts the commits don't show, instead of one huge instructions block.
+- Style rules in code: an invalid answer gets one corrective retry; a length-only problem is trimmed without a retry. Commit hashes in the text are always flagged. `forbidden-terms` (words or `/regex/`) for environment names and codenames; `style-check: strict` fails instead of warning.
+- Unreleased: `unreleased: true` (+ `unreleased-label: Upcoming`) writes notes from the last tag to HEAD for a dev/staging "Upcoming" entry. No GitHub Release, never stored in the history.
+- Big releases: diffs fill the `max-diff-kb` budget user-facing code first (tests, CI, docs last); `focus-paths` puts globs first. The log, preview and `context-truncated` output say what was left out.
 - Evidence proves a statement points at real changes, not that its wording is right. Recommend the review workflow for major releases.
 
 ## Security scanning (optional)
@@ -151,12 +156,15 @@ With `security-scan: true`, Taglore scans the released tag and the base version 
 
 ## Installing without npm
 
-Taglore is not on the npm registry. Use the Action for CI. The web components come from `web-components: true` (or jsDelivr: `https://cdn.jsdelivr.net/gh/d2k-klin/taglore@1/dist/whats-new.js`). The React package and the CLI install from the release tarballs: `https://github.com/d2k-klin/taglore/releases/latest/download/taglore-whats-new.tgz` and `https://github.com/d2k-klin/taglore/releases/latest/download/taglore.tgz`. Never tell the user to run `npm install taglore` or `npm install @taglore/whats-new`.
+Taglore is not on the npm registry. Use the Action for CI. The web components come from `web-components: true` (or jsDelivr: `https://cdn.jsdelivr.net/gh/d2k-klin/taglore@1/dist/whats-new.js`). The React package and the CLI install from the release tarballs: `https://github.com/d2k-klin/taglore/releases/latest/download/taglore-whats-new.tgz` and `https://github.com/d2k-klin/taglore/releases/latest/download/taglore.tgz`. For locked-down environments (action not allowed, no installs per run), recommend the self-contained `taglore.mjs` from the release: verify with `sha256sum --check --ignore-missing SHA256SUMS` and `gh attestation verify taglore.mjs -R d2k-klin/taglore`, then `node taglore.mjs generate ...` (Node 20+). Never tell the user to run `npm install taglore` or `npm install @taglore/whats-new`.
 
 ## Troubleshooting
 
 | Symptom | Fix |
 |---|---|
+| "Cannot upload assets to an immutable release" (Taglore before 1.6) | Upgrade; 1.6 creates a draft, attaches, then publishes. For releases already published, add `history-branch` |
+| "remaining diff truncated" / `context-truncated: true` | Raise `max-diff-kb`, or set `focus-paths` to the user-facing folders |
+| A title or field "too long" stopped a run | 1.6 retries with the reason or shortens it; set `on-ai-failure: fail` only if you want to stop instead |
 | "Shallow clone detected" | `actions/checkout` with `fetch-depth: 0` |
 | "No release tag found" | Workflow not triggered by a tag; pass `to:` |
 | "is not a semver tag" | Set `tag-prefix`, or use `from`/`to` (explicit compare) |
