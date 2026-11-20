@@ -42,14 +42,19 @@ export async function loadFacts(
   const parts: string[] = [];
   if (o.factsFile) {
     const path = fillPlaceholders(o.factsFile, v);
+    let text: string | null = null;
     try {
-      const text = await readFile(resolve(o.cwd, path), "utf8");
-      if (text.trim()) {
-        parts.push(text);
-        log.info(`Facts for ${v.version} from ${path}`);
+      text = await readFile(resolve(o.cwd, path), "utf8");
+    } catch (e) {
+      // Only a missing file means "no facts". Anything else would silently drop facts.
+      if ((e as NodeJS.ErrnoException).code !== "ENOENT") {
+        throw new Error(`facts-file: cannot read ${path}: ${(e as Error).message}`);
       }
-    } catch {
       log.info(`No facts file for ${v.version} (${path}).`);
+    }
+    if (text?.trim()) {
+      parts.push(text);
+      log.info(`Facts for ${v.version} from ${path}`);
     }
   }
   if (o.factsCommand) {

@@ -3,6 +3,14 @@ import type { RepoRef } from "./github-release.js";
 
 type Octokit = ReturnType<typeof getOctokit>;
 
+/** The branch moved (or was created) by another run between our read and our write. */
+export class BranchConflictError extends Error {}
+
+const isConflict = (e: unknown) => {
+  const status = (e as { status?: number }).status;
+  return status === 409 || (status === 422 && /fast forward|already exists/i.test(String((e as Error).message)));
+};
+
 export interface BranchFile {
   path: string;
   content: string;
@@ -45,8 +53,21 @@ export class BranchStore {
     }
   }
 
-  /** Writes all files in one commit. Creates the branch (orphan) when it doesn't exist. */
+  /**
+   * Writes all files in one commit. Creates the branch (orphan) when it doesn't exist.
+   * The ref update is not forced, so it only succeeds if nobody moved the branch since we read
+   * its head; otherwise BranchConflictError tells the caller to re-read, merge and retry.
+   */
   async write(files: BranchFile[], message: string): Promise<string> {
+    try {
+      return await this.writeOnce(files, message);
+    } catch (e) {
+      if (isConflict(e)) throw new BranchConflictError(`${this.branch} was updated by another run.`);
+      throw e;
+    }
+  }
+
+  private async writeOnce(files: BranchFile[], message: string): Promise<string> {
     const tree = files.map((f) => ({ path: f.path, mode: "100644" as const, type: "blob" as const, content: f.content }));
     let parent: string | null = null;
     try {
@@ -64,7 +85,7 @@ export class BranchStore {
     const { data: pc } = await this.octokit.rest.git.getCommit({ ...this.ref, commit_sha: parent });
     const { data: t } = await this.octokit.rest.git.createTree({ ...this.ref, base_tree: pc.tree.sha, tree });
     const { data: c } = await this.octokit.rest.git.createCommit({ ...this.ref, message, tree: t.sha, parents: [parent] });
-    await this.octokit.rest.git.updateRef({ ...this.ref, ref: `heads/${this.branch}`, sha: c.sha });
+    await this.octokit.rest.git.updateRef({ ...this.ref, ref: `heads/${this.branch}`, sha: c.sha, force: false });
     return c.sha;
   }
 }

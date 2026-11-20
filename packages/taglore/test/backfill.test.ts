@@ -30,6 +30,7 @@ const releases: Rel[] = [];
 let nextId = 100;
 const log: string[] = [];
 let immutableRepo = false;
+let raceOnce: Record<string, string> | null = null;
 const branches = new Map<string, string>();
 const commits = new Map<string, { tree: string; parents: string[] }>();
 const trees = new Map<string, Record<string, string>>();
@@ -158,6 +159,15 @@ beforeAll(async () => {
       if (req.method === "GET" && (m = p.match(/^\/repos\/o\/r\/git\/commits\/(.+)$/))) return send(200, { sha: m[1], tree: { sha: commits.get(m[1]!)!.tree } });
       if (req.method === "POST" && p === "/repos/o/r/git/trees") {
         const b = JSON.parse(raw);
+        // Simulate another run that writes the branch while this one is working.
+        if (raceOnce) {
+          const head = branches.get("taglore-data")!;
+          const files = { ...trees.get(commits.get(head)!.tree)!, ...raceOnce };
+          trees.set("treeRace", files);
+          commits.set("commitRace", { tree: "treeRace", parents: [head] });
+          branches.set("taglore-data", "commitRace");
+          raceOnce = null;
+        }
         const base = b.base_tree ? trees.get(b.base_tree)! : {};
         const files = { ...base };
         for (const t of b.tree) files[t.path] = t.content;
@@ -177,7 +187,11 @@ beforeAll(async () => {
         return send(201, {});
       }
       if (req.method === "PATCH" && (m = p.match(/^\/repos\/o\/r\/git\/refs\/heads\/(.+)$/))) {
-        branches.set(decodeURIComponent(m[1]!), JSON.parse(raw).sha);
+        const b = JSON.parse(raw);
+        const name = decodeURIComponent(m[1]!);
+        // Like GitHub without force: only a fast-forward from the current head is accepted.
+        if (!b.force && !commits.get(b.sha)!.parents.includes(branches.get(name)!)) return send(422, { message: "Update is not a fast forward" });
+        branches.set(name, b.sha);
         return send(200, {});
       }
       if (req.method === "GET" && (m = p.match(/^\/repos\/o\/r\/contents\/(.+)$/))) {
@@ -340,5 +354,26 @@ describe("immutable releases and the history branch", () => {
     const head = branches.get("taglore-data")!;
     expect(commits.get(head)!.parents).toHaveLength(1);
     expect(JSON.parse(trees.get(commits.get(head)!.tree)!["latest.json"]!).version).toBe("v1.2.0");
+  });
+
+  it("history-branch: a concurrent run's write is merged, not lost", async () => {
+    // The branch holds v1.0.0..v1.2.0 from the previous test. Another run adds an entry meanwhile.
+    const head = branches.get("taglore-data")!;
+    const other = JSON.parse(trees.get(commits.get(head)!.tree)!["history.json"]!);
+    const extra = { ...other.releases.at(-1), version: "v0.9.0", title: "From the other run" };
+    raceOnce = { "history.json": JSON.stringify({ schemaVersion: 1, releases: [...other.releases, extra] }) };
+    await runTaglore({ ...gh, githubApiUrl: base, cwd: repo, to: "v1.2.0", copilotCommand: fakeCopilot, historyBranch: "taglore-data", publishGithubRelease: false });
+    const final = trees.get(commits.get(branches.get("taglore-data")!)!.tree)!;
+    const versions = JSON.parse(final["history.json"]!).releases.map((x: { version: string }) => x.version);
+    expect(versions).toContain("v0.9.0");
+    expect(versions[0]).toBe("v1.2.0");
+    expect(commits.get(branches.get("taglore-data")!)!.parents).toEqual(["commitRace"]);
+  });
+
+  it("a draft with an empty body is not treated as Taglore's", async () => {
+    reset(false);
+    releases.push({ id: 9, tag_name: "v1.0.1", name: "v1.0.1", body: "", draft: true, assets: [] });
+    await runTaglore({ ...gh, githubApiUrl: base, cwd: repo, to: "v1.0.1", copilotCommand: fakeCopilot, historyLimit: 0 });
+    expect(releases.find((x) => x.tag_name === "v1.0.1")!.draft).toBe(true);
   });
 });

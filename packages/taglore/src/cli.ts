@@ -32,7 +32,8 @@ AI
   --audience <text>       Default: "end users of the application"
   --instructions <text>   Extra guidance for the AI; {version}, {from}, {to}, {releaseType} are filled in
   --facts-file <path>     Per-release facts for the AI, e.g. docs/releases/{version}.md (missing = none)
-  --facts-from <command>  Command that prints per-release facts; gets TAGLORE_VERSION, TAGLORE_FROM, TAGLORE_TO
+  --facts-command <cmd>   Command that prints per-release facts; gets TAGLORE_VERSION, TAGLORE_FROM, TAGLORE_TO
+                          (--facts-from is an alias)
   --forbid <term>         Word or /regex/ that must not appear in the notes (repeatable)
   --style-check <mode>    warn | strict: what happens when a style rule is still broken (default: warn)
   --focus <glob>          Diffs that go first when a big release doesn't fit (repeatable)
@@ -120,6 +121,7 @@ async function main() {
       unreleased: { type: "boolean" },
       "unreleased-label": { type: "string" },
       "facts-file": { type: "string" },
+      "facts-command": { type: "string" },
       "facts-from": { type: "string" },
       forbid: { type: "string", multiple: true },
       "style-check": { type: "string" },
@@ -174,7 +176,7 @@ async function main() {
     unreleased: values.unreleased,
     unreleasedLabel: values["unreleased-label"],
     factsFile: values["facts-file"],
-    factsCommand: values["facts-from"],
+    factsCommand: values["facts-command"] ?? values["facts-from"],
     forbiddenTerms: values.forbid,
     styleCheck: values["style-check"] as "warn" | "strict" | undefined,
     focusPaths: values.focus,

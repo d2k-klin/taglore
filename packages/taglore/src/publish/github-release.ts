@@ -28,9 +28,12 @@ export interface ReleaseAsset {
   contentType?: string;
 }
 
-/** True when a release body is nothing but Taglore's block (written by Taglore alone). */
+/**
+ * True when a release body is nothing but Taglore's block (written by Taglore alone).
+ * An empty body proves nothing about who created the release, so it doesn't count.
+ */
 export function isOnlyTagloreBody(body: string | null | undefined): boolean {
-  if (!body?.trim()) return true;
+  if (!body?.trim()) return false;
   const start = body.indexOf(BODY_START);
   const end = body.indexOf(BODY_END);
   return start !== -1 && end > start && (body.slice(0, start) + body.slice(end + BODY_END.length)).trim() === "";

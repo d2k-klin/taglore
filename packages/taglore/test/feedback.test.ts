@@ -227,6 +227,31 @@ describe("unreleased", () => {
   });
 });
 
+describe("review fixes", () => {
+  it("unreleased notes are never announced, and fallback notes use the label", async () => {
+    const r = await runTaglore({ ...base, cwd: repo, unreleased: true, announceOn: ["major", "minor", "unreleased"], provider: "none", dryRun: true });
+    expect(r.announce).toBe(false);
+    expect(r.notes.title).not.toContain("HEAD");
+    expect(r.latest?.version ?? null).not.toBe("Unreleased");
+  });
+
+  it("reused notes are style-checked too", async () => {
+    const reviewed = await runTaglore({ ...base, cwd: repo, to: "v1.1.1", provider: "none", dryRun: true });
+    const file = join(work, "reviewed.json");
+    writeFileSync(file, JSON.stringify({ ...reviewed.notes, title: "Fix on staging" }));
+    await expect(
+      runTaglore({ ...base, cwd: repo, to: "v1.1.1", notesFrom: file, forbiddenTerms: ["staging"], styleCheck: "strict", dryRun: true }),
+    ).rejects.toThrow(/Style check failed/);
+  });
+
+  it("a facts file that exists but can't be read stops the run", async () => {
+    mkdirSync(join(repo, "facts", "v1.1.1.md"), { recursive: true }); // a folder, not a file
+    answers(good());
+    await expect(runTaglore({ ...base, cwd: repo, to: "v1.1.1", copilotCommand: fake, factsFile: "facts/{version}.md" })).rejects.toThrow(/facts-file: cannot read/);
+    rmSync(join(repo, "facts", "v1.1.1.md"), { recursive: true });
+  });
+});
+
 describe("history file as the store", () => {
   it("backfill skips tags already in the history file, and patches find their announcement in it", async () => {
     const first = await runTaglore({ ...base, cwd: repo, to: "v1.1.0", provider: "none", dryRun: true });

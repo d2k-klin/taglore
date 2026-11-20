@@ -21,7 +21,7 @@ import { renderSecuritySection } from "./security/markdown.js";
 import { runSecurityScan } from "./security/scan.js";
 import type { FailOn, SecurityReport } from "./security/types.js";
 import { AiNotesSchema, type AiNotes, type History, HistorySchema, type ReleaseNotes, ReleaseNotesSchema, type ReleaseType, SCHEMA_VERSION } from "./schema.js";
-import { BranchStore } from "./publish/branch-store.js";
+import { BranchConflictError, BranchStore } from "./publish/branch-store.js";
 import { announcementBase, type CompareMode, compareSemver, parseSemver, releaseTypeOf, resolveBase, type SemVer, shouldAnnounce, stableTags } from "./version.js";
 
 export interface Logger {
@@ -343,7 +343,8 @@ export async function runTaglore(opts: TagloreOptions = {}): Promise<TagloreResu
     from = resolveBase(current, tags, compare, prefix)?.raw ?? null;
     releaseType = releaseTypeOf(current);
   }
-  const announce = shouldAnnounce(releaseType, announceOn);
+  // Unreleased changes are never announced, whatever announce-on says.
+  const announce = !unreleased && shouldAnnounce(releaseType, announceOn);
   const version = unreleased ? (o.unreleasedLabel ?? "Unreleased") : to;
   const vars: ReleaseVars = { version, from, to, releaseType };
   log.info(`Taglore ${TAGLORE_VERSION}: ${from ?? "(first commit)"} -> ${to}${unreleased ? ` as "${version}"` : ""} [${releaseType}, announce=${announce}]`);
@@ -446,19 +447,20 @@ export async function runTaglore(opts: TagloreOptions = {}): Promise<TagloreResu
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       // Missing facts would mean wrong notes, not merely plainer ones: stop instead of falling back.
-      if (/^facts-command/.test(msg)) throw e;
+      if (/^facts-(command|file)/.test(msg)) throw e;
       if ((o.onAiFailure ?? "fallback") === "fail") throw new Error(`AI generation failed: ${msg}`);
       log.warn(`AI generation failed, using commit-based notes instead. ${msg}`);
-      body = fallbackNotes(changes.commits, to, { firstRelease: from === null });
+      body = fallbackNotes(changes.commits, version, { firstRelease: from === null });
     }
   } else {
-    body = fallbackNotes(changes.commits, to, { firstRelease: from === null });
+    body = fallbackNotes(changes.commits, version, { firstRelease: from === null });
   }
 
   // 3a. Style rules, checked in code (the AI step already retried once with the reasons).
   const styleCheck = o.styleCheck ?? "warn";
   if (styleCheck !== "warn" && styleCheck !== "strict") throw new Error(`Invalid style-check "${styleCheck}". Use warn or strict.`);
-  const remainingStyle = reused ? [] : styleIssues(body, changes.commits, compileTerms(o.forbiddenTerms));
+  // Reused notes (notes-from) are checked too: they may have been edited by hand after the review.
+  const remainingStyle = styleIssues(body, changes.commits, compileTerms(o.forbiddenTerms));
   if (remainingStyle.length) {
     if (styleCheck === "strict") throw new Error(`Style check failed, nothing was published: ${remainingStyle.join("; ")}`);
     log.warn(`Style check: ${remainingStyle.join("; ")}`);
@@ -589,11 +591,22 @@ export async function runTaglore(opts: TagloreOptions = {}): Promise<TagloreResu
       log.info(`GitHub Release: ${releaseUrl}`);
     }
     if (store && releaseType !== "prerelease" && !unreleased) {
-      const all = mergeNotes([notes, ...known.values()], prefix).slice(0, 500);
-      const branchFiles = [{ path: branchPath("history.json"), content: JSON.stringify({ schemaVersion: SCHEMA_VERSION, releases: all }, null, 2) + "\n" }];
-      if (latest) branchFiles.push({ path: branchPath("latest.json"), content: JSON.stringify(latest, null, 2) + "\n" });
-      await store.write(branchFiles, `taglore: ${to}`);
-      log.info(`History branch: wrote ${branchFiles.map((f) => f.path).join(", ")} to ${store.branch} (${all.length} releases).`);
+      // Another run may have written the branch since we read it: then re-read, merge, try again.
+      let base = [...known.values()];
+      for (let attempt = 1; ; attempt++) {
+        const all = mergeNotes([notes, ...backfilledNotes, ...base], prefix).slice(0, 500);
+        const branchFiles = [{ path: branchPath("history.json"), content: JSON.stringify({ schemaVersion: SCHEMA_VERSION, releases: all }, null, 2) + "\n" }];
+        if (latest) branchFiles.push({ path: branchPath("latest.json"), content: JSON.stringify(latest, null, 2) + "\n" });
+        try {
+          await store.write(branchFiles, `taglore: ${to}`);
+          log.info(`History branch: wrote ${branchFiles.map((f) => f.path).join(", ")} to ${store.branch} (${all.length} releases).`);
+          break;
+        } catch (e) {
+          if (!(e instanceof BranchConflictError) || attempt >= 3) throw e;
+          log.warn(`History branch: ${store.branch} changed while this run was working; merging and trying again.`);
+          base = (await loadStoredHistory(o, cwd, store, branchPath("history.json"), log)) ?? [];
+        }
+      }
     }
     if (o.s3Uri) {
       s3Keys = await uploadToS3(o.s3Uri, files, o.s3Region);
